@@ -1,0 +1,17 @@
+# Supabase Configuration
+
+project_id = "your-project-id"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+max_rows = 1000
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+
+[functions]
+enabled = true

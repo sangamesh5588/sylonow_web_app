@@ -1,0 +1,5 @@
+{
+  "name": "Sylonow - Premium Event Decor Marketplace",
+  "description": "A modern, premium marketplace for event decoration services including birthdays, anniversaries, and proposals.",
+  "requestFramePermissions": ["geolocation"]
+}
