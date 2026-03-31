@@ -1,13 +1,4 @@
-export type Category = 
-  | "Birthday" 
-  | "Proposal" 
-  | "Anniversary" 
-  | "Baby shower" 
-  | "Festive" 
-  | "Corporate"
-  | "Wedding"
-  | "Gifts"
-  | "Experience";
+export type Category = string;
 
 export interface Service {
   id: string;

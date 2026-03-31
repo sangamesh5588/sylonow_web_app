@@ -1,8 +1,9 @@
 import { Home, LayoutGrid, Percent, User } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "../../lib/utils";
 
 export const BottomNav = () => {
+  const location = useLocation();
   const navItems = [
     { icon: Home, label: "Home", path: "/" },
     { icon: LayoutGrid, label: "Decorations", path: "/category/Birthday" },
@@ -20,7 +21,9 @@ export const BottomNav = () => {
             className={({ isActive }) =>
               cn(
                 "flex flex-col items-center gap-1 transition-colors flex-1",
-                isActive ? "text-[#FB2965]" : "text-gray-400"
+                (item.label === "Decorations" ? location.pathname.startsWith("/category/") : isActive)
+                  ? "text-[#FB2965]"
+                  : "text-gray-400"
               )
             }
           >

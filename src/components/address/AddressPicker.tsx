@@ -39,17 +39,18 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
   const mapInstanceRef = useRef<any>(null);
   const autocompleteRef = useRef<any>(null);
   const latestValueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
 
   const [loading, setLoading] = useState(Boolean(GOOGLE_MAPS_API_KEY));
   const [error, setError] = useState("");
-  const [searchValue, setSearchValue] = useState(value.fullAddress);
+  const initialSearchValue = value.fullAddress;
   const [isMapExpanded, setIsMapExpanded] = useState(!(value.latitude && value.longitude));
   const [isLocating, setIsLocating] = useState(false);
 
   useEffect(() => {
     latestValueRef.current = value;
-    setSearchValue(value.fullAddress);
-  }, [value]);
+    onChangeRef.current = onChange;
+  }, [value, onChange]);
 
   useEffect(() => {
     if (value.latitude && value.longitude) {
@@ -63,44 +64,63 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
       return;
     }
 
-    let mounted = true;
+    let cancelled = false;
 
-    const updateFromLocation = (location: { lat: number; lng: number }, placeId?: string) => {
+    const reverseGeocode = (location: { lat: number; lng: number }, placeId?: string) => {
       const google = (window as any).google;
-      if (!google || !geocoderRef.current) return;
+      const currentValue = latestValueRef.current;
+
+      if (!google || !geocoderRef.current) {
+        // No geocoder — still save lat/lng
+        onChangeRef.current({ ...currentValue, latitude: location.lat, longitude: location.lng });
+        setIsMapExpanded(false);
+        return;
+      }
 
       geocoderRef.current.geocode({ location }, (results: any[], status: string) => {
-        if (!mounted || status !== "OK" || !results?.[0]) return;
+        const latest = latestValueRef.current;
+
+        if (status !== "OK" || !results?.[0]) {
+          // Geocoding failed — still save lat/lng
+          onChangeRef.current({ ...latest, latitude: location.lat, longitude: location.lng });
+          setIsMapExpanded(false);
+          return;
+        }
 
         const primary = results[0];
         const parsed = parseAddressComponents(primary.address_components);
-        const currentValue = latestValueRef.current;
 
-        onChange({
-          ...currentValue,
-          fullAddress: primary.formatted_address || currentValue.fullAddress,
-          city: parsed.city || currentValue.city,
-          pincode: parsed.pincode || currentValue.pincode,
+        onChangeRef.current({
+          ...latest,
+          fullAddress: primary.formatted_address || latest.fullAddress,
+          city: parsed.city || latest.city,
+          pincode: parsed.pincode || latest.pincode,
           latitude: location.lat,
           longitude: location.lng,
-          placeId: placeId || primary.place_id || currentValue.placeId,
+          placeId: placeId || primary.place_id || latest.placeId,
         });
         setIsMapExpanded(false);
       });
     };
 
+    const initValue = latestValueRef.current;
+
     loadGoogleMaps()
       .then((google) => {
-        if (!mounted || !mapRef.current) return;
+        // Wait for the modal animation to finish so the map div has dimensions
+        return new Promise<any>((resolve) => setTimeout(() => resolve(google), 350));
+      })
+      .then((google) => {
+        if (cancelled || !mapRef.current) return;
 
         const center =
-          value.latitude && value.longitude
-            ? { lat: value.latitude, lng: value.longitude }
+          initValue.latitude && initValue.longitude
+            ? { lat: initValue.latitude, lng: initValue.longitude }
             : DEFAULT_CENTER;
 
         const map = new google.maps.Map(mapRef.current, {
           center,
-          zoom: value.latitude && value.longitude ? 16 : 12,
+          zoom: initValue.latitude && initValue.longitude ? 16 : 12,
           disableDefaultUI: true,
           zoomControl: true,
           clickableIcons: false,
@@ -125,14 +145,14 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
           const lng = event.latLng?.lng();
           if (typeof lat !== "number" || typeof lng !== "number") return;
           marker.setPosition({ lat, lng });
-          updateFromLocation({ lat, lng });
+          reverseGeocode({ lat, lng });
         });
 
         marker.addListener("dragend", (event: any) => {
           const lat = event.latLng?.lat();
           const lng = event.latLng?.lng();
           if (typeof lat !== "number" || typeof lng !== "number") return;
-          updateFromLocation({ lat, lng });
+          reverseGeocode({ lat, lng });
         });
 
         if (searchInputRef.current) {
@@ -154,7 +174,7 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
             map.setZoom(16);
             marker.setPosition({ lat, lng });
 
-            onChange({
+            onChangeRef.current({
               ...currentValue,
               fullAddress: place.formatted_address || currentValue.fullAddress,
               city: parsed.city || currentValue.city,
@@ -172,16 +192,16 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
         setLoading(false);
       })
       .catch((loadError) => {
-        if (!mounted) return;
+        if (cancelled) return;
         setError(loadError instanceof Error ? loadError.message : "Unable to load Google Maps");
         setLoading(false);
       });
 
     return () => {
-      mounted = false;
-      autocompleteRef.current = null;
+      cancelled = true;
     };
-  }, [onChange, value.latitude, value.longitude]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !markerRef.current) return;
@@ -218,16 +238,23 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
         if (google && geocoderRef.current) {
           geocoderRef.current.geocode({ location: next }, (results: any[], status: string) => {
             setIsLocating(false);
+            const currentValue = latestValueRef.current;
+
             if (status !== "OK" || !results?.[0]) {
-              setError("Could not fetch address for your current location");
+              // Geocoding API may not be enabled — still save lat/lng
+              onChangeRef.current({
+                ...currentValue,
+                latitude: next.lat,
+                longitude: next.lng,
+              });
+              setIsMapExpanded(false);
               return;
             }
 
             const primary = results[0];
             const parsed = parseAddressComponents(primary.address_components);
-            const currentValue = latestValueRef.current;
 
-            onChange({
+            onChangeRef.current({
               ...currentValue,
               fullAddress: primary.formatted_address || currentValue.fullAddress,
               city: parsed.city || currentValue.city,
@@ -240,6 +267,13 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
           });
         } else {
           setIsLocating(false);
+          // No geocoder yet — still save lat/lng
+          const currentValue = latestValueRef.current;
+          onChangeRef.current({
+            ...currentValue,
+            latitude: next.lat,
+            longitude: next.lng,
+          });
         }
       },
       () => {
@@ -274,8 +308,7 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
             <div className="relative flex-1">
               <Input
                 ref={searchInputRef}
-                value={searchValue}
-                onChange={(event) => setSearchValue(event.target.value)}
+                defaultValue={initialSearchValue}
                 placeholder={
                   GOOGLE_MAPS_API_KEY
                     ? "Search for area, street name..."
@@ -285,18 +318,6 @@ export const AddressPicker = ({ value, onChange }: AddressPickerProps) => {
                 disabled={!GOOGLE_MAPS_API_KEY}
               />
               <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#98a2b3]" />
-              {searchValue ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchValue("");
-                    onChange({ ...value, fullAddress: "" });
-                  }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-[#98a2b3]"
-                >
-                  <X size={14} />
-                </button>
-              ) : null}
             </div>
           </div>
           <div className="mt-3 flex justify-end">

@@ -14,20 +14,35 @@ export const Layout = () => {
   const isCategoryPage = location.pathname.startsWith("/category/");
   const isSearchPage = location.pathname === "/search";
 
-  // Show bottom nav only on main pages (home, offers, profile)
-  const showBottomNav = isHomePage || isOffersPage || isProfilePage;
+  const showBottomNav = isHomePage || isOffersPage || isProfilePage || isCategoryPage;
   const showPopularSearches = isHomePage || isCategoryPage || isSearchPage;
 
   return (
-    <div className={`min-h-screen bg-white text-[#1A1A1A] ${showBottomNav ? 'pb-32 md:pb-0' : 'pb-8'}`}>
+    <div className={`min-h-screen w-full max-w-full overflow-x-hidden bg-white text-[#1A1A1A] ${showBottomNav ? 'pb-32 md:pb-0' : 'pb-8'}`}>
       <Navbar />
-      <main className="pt-4 max-w-7xl mx-auto px-4">
+      <main className={`mx-auto w-full max-w-7xl overflow-x-hidden px-4 ${isCategoryPage ? "pt-0" : "pt-4"}`}>
         <Outlet />
         {showPopularSearches && <PopularSearches />}
       </main>
       {isHomePage && <Footer />}
       {showBottomNav && <BottomNav />}
-      <Toaster position="top-center" theme="dark" richColors />
+      <Toaster
+        position="top-right"
+        theme="light"
+        toastOptions={{
+          duration: 2200,
+          classNames: {
+            toast:
+              "!rounded-2xl !border !border-[#e4e7ec] !bg-white/95 !text-[#22313f] !shadow-[0_14px_30px_rgba(15,23,42,0.10)] !backdrop-blur-md",
+            title: "!text-sm !font-semibold !text-[#22313f]",
+            description: "!text-xs !text-[#667085]",
+            success: "!border-[#d1fadf] !bg-[#f6fffa]",
+            error: "!border-[#fecdca] !bg-[#fff7f5]",
+            info: "!border-[#dbeafe] !bg-[#f8fbff]",
+            warning: "!border-[#fde68a] !bg-[#fffdf5]",
+          },
+        }}
+      />
     </div>
   );
 };

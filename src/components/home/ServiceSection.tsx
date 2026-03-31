@@ -59,11 +59,6 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
               className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700"
               referrerPolicy="no-referrer"
             />
-            <div className="absolute top-3 left-3">
-              <Badge className="bg-white/90 backdrop-blur-sm text-black border-none text-[9px] px-2 py-0.5 rounded-md font-bold tracking-tight shadow-sm">
-                Guest favourite
-              </Badge>
-            </div>
             <button
               onClick={handleWishlistClick}
               className="absolute top-3 right-3 text-white hover:text-[#FB2965] transition-colors drop-shadow-md"
@@ -74,7 +69,7 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
           <div className="px-0.5 space-y-0.5">
             <h3 className="font-bold text-[#0B4964] text-xs truncate">{service.title}</h3>
             <div className="flex items-center gap-1 text-[10px] text-gray-500">
-              <span className="font-medium">{formatCurrency(service.price)} for 1 night</span>
+              <span className="text-[11px] font-semibold text-[#344054]">{formatCurrency(service.price)} incl. setup</span>
               <span>•</span>
               <div className="flex items-center gap-0.5 text-black">
                 <Star size={10} fill="currentColor" />
@@ -91,7 +86,7 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
 export const ServiceSection = ({ title, services, sectionId }: ServiceSectionProps) => {
   return (
     <section>
-      <div className="flex items-center gap-3 mb-4">
+      <div className="mb-3 flex items-center gap-3 md:mb-4">
         <Link
           to={sectionId ? `/section/${sectionId}` : "#"}
           className={`flex items-center gap-3 group ${!sectionId && "pointer-events-none"}`}
@@ -101,7 +96,7 @@ export const ServiceSection = ({ title, services, sectionId }: ServiceSectionPro
         </Link>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar -mx-4 px-4 pt-4 pb-4">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2 md:pt-4 md:pb-4">
         {services.map((service, index) => (
           <ServiceCardWithWishlist key={service.id} service={service} index={index} />
         ))}

@@ -1,7 +1,6 @@
-import { MapPin, Search, ShoppingBag, User, ChevronDown } from "lucide-react";
+import { MapPin, Search, ShoppingBag, User, ChevronDown, ChevronLeft } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { useAuth } from "../../contexts/AuthContext";
 
 export const Navbar = () => {
@@ -12,14 +11,23 @@ export const Navbar = () => {
   const location = useLocation();
   const isHomePage = location.pathname === "/";
   const isDecorationsPage = location.pathname.startsWith("/category/");
+  const isOffersPage = location.pathname === "/offers";
   const isServiceDetailPage = location.pathname.startsWith("/service/");
   const showSearchBar = isHomePage || isDecorationsPage || isServiceDetailPage;
   const showMobileSearchBar = isHomePage || isDecorationsPage;
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+      setIsScrolled((current) => {
+        if (current) {
+          return window.scrollY > 8;
+        }
+
+        return window.scrollY > 48;
+      });
     };
+
+    handleScroll();
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -32,7 +40,7 @@ export const Navbar = () => {
   };
 
   return (
-    <header className={`${isHomePage ? "sticky" : "relative"} md:relative top-0 z-50 bg-white border-b border-gray-100`}>
+    <header className={`${isHomePage || isOffersPage ? "sticky" : "relative"} md:relative top-0 z-50 bg-white ${showMobileSearchBar || isHomePage ? "border-b border-gray-100" : "md:border-b md:border-gray-100"}`}>
       {/* Desktop Header */}
       <div className="hidden md:block">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-8">
@@ -99,50 +107,66 @@ export const Navbar = () => {
 
       {/* Mobile Header */}
       <div className="md:hidden">
-        <AnimatePresence initial={false}>
-          {!isScrolled && isHomePage && (
-            <motion.div
-              initial={{ height: "auto", opacity: 1 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="overflow-hidden"
-            >
-              <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-[#FB2965]/10 rounded-lg flex items-center justify-center">
-                    <MapPin className="text-[#FB2965]" size={18} />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold tracking-widest text-gray-400 leading-none">Mumbai</span>
-                    <span className="text-xs font-semibold text-[#0B4964]">Andheri West</span>
-                  </div>
+        {isHomePage ? (
+          <div
+            className={`overflow-hidden transition-[max-height,opacity,transform] duration-300 ease-out ${
+              isScrolled ? "max-h-0 -translate-y-2 opacity-0" : "max-h-20 translate-y-0 opacity-100"
+            }`}
+          >
+            <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-[#FB2965]/10 rounded-lg flex items-center justify-center">
+                  <MapPin className="text-[#FB2965]" size={18} />
                 </div>
-
-                <div className="flex items-center gap-4">
-                  <Link to="/cart" className="p-2 hover:bg-gray-50 rounded-full transition-colors relative">
-                    <ShoppingBag size={20} className="text-gray-600" />
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-[#FB2965] rounded-full border-2 border-white"></span>
-                  </Link>
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold tracking-widest text-gray-400 leading-none">Mumbai</span>
+                  <span className="text-xs font-semibold text-[#0B4964]">Andheri West</span>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+
+              <div className="flex items-center gap-4">
+                <Link to="/cart" className="p-2 hover:bg-gray-50 rounded-full transition-colors relative">
+                  <ShoppingBag size={20} className="text-gray-600" />
+                  <span className="absolute top-1 right-1 w-2 h-2 bg-[#FB2965] rounded-full border-2 border-white"></span>
+                </Link>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* Mobile Search Bar */}
+        {showMobileSearchBar && (isHomePage || isDecorationsPage) && isScrolled ? <div className="h-[72px]" /> : null}
+
         {showMobileSearchBar && (
-          <div className={`px-4 pb-4 transition-all duration-300 ${isScrolled ? "pt-4" : "pt-3"}`}>
-            <form onSubmit={handleSearch} className="relative">
-              <input
-                type="text"
-                placeholder='Search "Decorations"'
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-11 bg-gray-50 border border-gray-100 rounded-full px-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#FB2965]/10 transition-all shadow-sm"
-              />
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            </form>
+          <div
+            className={`px-4 pb-1 transition-all duration-300 ${
+              (isHomePage || isDecorationsPage) && isScrolled
+                ? "fixed inset-x-0 top-0 z-[60] bg-white/95 pt-3 shadow-[0_12px_24px_rgba(15,23,42,0.08)] backdrop-blur-md"
+                : "bg-white pt-3"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              {isDecorationsPage ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#0B4964] shadow-sm ring-1 ring-[#eadfdb]"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+              ) : null}
+
+              <form onSubmit={handleSearch} className="relative flex-1">
+                <input
+                  type="text"
+                  placeholder='Search "Decorations"'
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-11 bg-gray-50 border border-gray-100 rounded-full px-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#FB2965]/10 transition-all shadow-sm"
+                />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              </form>
+            </div>
           </div>
         )}
       </div>

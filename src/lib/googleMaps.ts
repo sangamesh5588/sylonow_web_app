@@ -13,6 +13,11 @@ export const loadGoogleMaps = () => {
 
   const existing = document.getElementById(GOOGLE_MAPS_SCRIPT_ID) as HTMLScriptElement | null;
   if (existing) {
+    // Script already in DOM — if google.maps loaded, resolve immediately
+    if ((window as any).google?.maps) {
+      return Promise.resolve((window as any).google);
+    }
+    // Still loading, wait for it
     return new Promise<any>((resolve, reject) => {
       existing.addEventListener("load", () => resolve((window as any).google));
       existing.addEventListener("error", () => reject(new Error("Failed to load Google Maps")));

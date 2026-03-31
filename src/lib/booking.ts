@@ -106,7 +106,8 @@ export const createOrder = (
   userId: string,
   service: Service,
   draft: BookingDraft,
-  address: Address
+  address: Address,
+  totalAmount?: number
 ): Order => {
   const newOrder: Order = {
     id: `order-${Date.now()}`,
@@ -119,7 +120,7 @@ export const createOrder = (
       time: draft.time,
       quantity: 1,
     }],
-    totalAmount: draft.price + Math.round(draft.price * 0.05), // Include taxes
+    totalAmount: totalAmount ?? draft.price + Math.round(draft.price * 0.05),
     status: "pending",
     address,
     createdAt: new Date().toISOString(),

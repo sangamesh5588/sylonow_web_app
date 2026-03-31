@@ -32,7 +32,7 @@ const Offers = () => {
   ];
 
   return (
-    <div className="py-8 space-y-8">
+    <div className="pt-3 pb-8 space-y-8 md:py-8">
       <div className="flex items-center gap-4">
         <div className="w-12 h-12 bg-[#FFD93D] rounded-2xl flex items-center justify-center text-black">
           <Percent size={24} />

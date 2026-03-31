@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Layout } from "./components/layout/Layout";
+import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { AuthProvider } from "./contexts/AuthContext";
 import { LoginModal } from "./components/LoginModal";
 import Home from "./pages/Home";
@@ -14,11 +15,13 @@ import SectionDetail from "./pages/SectionDetail";
 import Orders from "./pages/Orders";
 import Addresses from "./pages/Addresses";
 import Wishlist from "./pages/Wishlist";
+import Coupons from "./pages/Coupons";
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <ScrollToTop />
         <LoginModal />
         <Routes>
           <Route path="/" element={<Layout />}>
@@ -31,6 +34,7 @@ export default function App() {
             <Route path="addresses" element={<Addresses />} />
             <Route path="wishlist" element={<Wishlist />} />
             <Route path="checkout" element={<Checkout />} />
+            <Route path="coupons" element={<Coupons />} />
             <Route path="offers" element={<Offers />} />
             <Route path="search" element={<SearchPage />} />
             <Route path="section/:sectionId" element={<SectionDetail />} />

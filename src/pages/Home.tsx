@@ -1,35 +1,60 @@
-import { TrendingDecorations } from "../components/home/TrendingDecorations";
+import { useEffect, useState } from "react";
 import { CategoryCircles } from "../components/home/CategoryCircles";
 import { OfferBanner } from "../components/home/OfferBanner";
 import { ServiceSection } from "../components/home/ServiceSection";
-import { FilterChips } from "../components/FilterChips";
-import { SERVICES } from "../services/mockData";
+import { fetchAllServices } from "../lib/services";
+import { Service } from "../types";
 
 const Home = () => {
-  const trendingNow = SERVICES.slice(0, 8);
-  const popularPicks = SERVICES.slice(0, 6);
-  const birthdayServices = SERVICES.filter(s => s.category === "Birthday");
-  const proposalServices = SERVICES.filter(s => s.category === "Proposal");
-  const anniversaryServices = SERVICES.filter(s => s.category === "Anniversary");
-  const babyShowerServices = SERVICES.filter(s => s.category === "Baby shower");
-  const experienceServices = SERVICES.filter(s => s.category === "Experience");
+  const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAllServices().then((data) => {
+      setServices(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const trending = services.filter((s) => s.trending).slice(0, 8);
+  const popular = [...services].sort((a, b) => b.rating - a.rating).slice(0, 8);
+
+  // Group by category
+  const categoryMap = new Map<string, Service[]>();
+  for (const s of services) {
+    const list = categoryMap.get(s.category) || [];
+    list.push(s);
+    categoryMap.set(s.category, list);
+  }
 
   return (
-    <div className="space-y-8 md:space-y-12 pb-40 md:pb-12 pt-4">
-      <div className="space-y-8 md:space-y-12">
+    <div className="space-y-5 pb-40 pt-4 md:space-y-12 md:pb-12">
+      <div className="space-y-5 md:space-y-12">
         <OfferBanner />
         <CategoryCircles />
-        <TrendingDecorations />
 
-        <FilterChips />
-
-        <ServiceSection title="Trending now" services={trendingNow} sectionId="trending" />
-        <ServiceSection title="Popular picks" services={popularPicks} sectionId="popular" />
-        <ServiceSection title="Birthday Specials" services={birthdayServices} sectionId="birthday" />
-        <ServiceSection title="Romantic Proposals" services={proposalServices} sectionId="proposal" />
-        <ServiceSection title="Anniversary Decor" services={anniversaryServices} sectionId="anniversary" />
-        <ServiceSection title="Baby Shower Themes" services={babyShowerServices} sectionId="baby-shower" />
-        <ServiceSection title="Unique Experiences" services={experienceServices} sectionId="experience" />
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#0B4964] border-t-transparent" />
+          </div>
+        ) : (
+          <>
+            {trending.length > 0 && (
+              <ServiceSection title="Trending now" services={trending} sectionId="trending" />
+            )}
+            {popular.length > 0 && (
+              <ServiceSection title="Popular picks" services={popular} sectionId="popular" />
+            )}
+            {[...categoryMap.entries()].map(([category, categoryServices]) => (
+              <ServiceSection
+                key={category}
+                title={category}
+                services={categoryServices}
+                sectionId={category.toLowerCase().replace(/\s+/g, "-")}
+              />
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

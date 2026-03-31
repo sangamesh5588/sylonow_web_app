@@ -24,7 +24,8 @@ import { toast } from "sonner";
 import { Badge, Button } from "../components/ui";
 import { readWishlist, saveBookingDraft, toggleWishlist } from "../lib/booking";
 import { formatCurrency } from "../lib/utils";
-import { SERVICES } from "../services/mockData";
+import { fetchServiceById, fetchAllServices } from "../lib/services";
+import { Service } from "../types";
 import { useAuth } from "../contexts/AuthContext";
 
 const DATE_OPTIONS = Array.from({ length: 15 }, (_, index) => {
@@ -151,7 +152,19 @@ const ServiceDetail = () => {
   const { serviceId } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated, setShowLoginModal } = useAuth();
-  const service = SERVICES.find((item) => item.id === serviceId);
+  const [service, setService] = useState<Service | null>(null);
+  const [allServices, setAllServices] = useState<Service[]>([]);
+  const [loadingService, setLoadingService] = useState(true);
+
+  useEffect(() => {
+    if (!serviceId) return;
+    setLoadingService(true);
+    Promise.all([fetchServiceById(serviceId), fetchAllServices()]).then(([svc, all]) => {
+      setService(svc);
+      setAllServices(all);
+      setLoadingService(false);
+    });
+  }, [serviceId]);
 
   const [activeImage, setActiveImage] = useState(0);
   const [selectedDate, setSelectedDate] = useState(DATE_OPTIONS[0].date);
@@ -189,7 +202,7 @@ const ServiceDetail = () => {
   }, [appliedCoupon, service]);
   const similarServices = useMemo(
     () =>
-      SERVICES.filter((item) => item.id !== serviceId)
+      allServices.filter((item) => item.id !== serviceId)
         .sort((a, b) => {
           const categoryScore =
             Number(b.category === service?.category) - Number(a.category === service?.category);
@@ -199,7 +212,7 @@ const ServiceDetail = () => {
           return b.rating - a.rating;
         })
         .slice(0, 4),
-    [service?.category, serviceId]
+    [allServices, service?.category, serviceId]
   );
   const activeDetailSection = DETAIL_CONTENT[activeDetailTab];
 
@@ -215,9 +228,17 @@ const ServiceDetail = () => {
     updateTitleWrap();
     window.addEventListener("resize", updateTitleWrap);
     return () => window.removeEventListener("resize", updateTitleWrap);
-  }, [service.title]);
+  }, [service?.title]);
 
-  if (!service) return <div>Service not found</div>;
+  if (loadingService) {
+    return (
+      <div className="flex justify-center py-24">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#0B4964] border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!service) return <div className="py-24 text-center text-lg text-[#667085]">Service not found</div>;
 
   const isWishlisted = wishlistIds.includes(service.id);
 
@@ -496,18 +517,83 @@ const ServiceDetail = () => {
             <p className="text-base leading-7 text-[#526070]">{service.description}</p>
           </div>
 
-          <section className="space-y-3">
+          <section className="hidden rounded-[32px] border border-[#eadfdb] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block md:p-8">
+            <div className="flex flex-wrap gap-2">
+              {DETAIL_TABS.map((tab) => {
+                const isActive = activeDetailTab === tab;
+                return (
+                  <button
+                    key={`desktop-description-${tab}`}
+                    type="button"
+                    onClick={() => setActiveDetailTab(tab)}
+                    className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                      isActive
+                        ? "border-[#1f2430] bg-[#1f2430] text-white"
+                        : "border-[#d9dde3] bg-white text-[#526070]"
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-[24px] border border-[#edf0f4] bg-[#fcfdff]">
+              <button
+                type="button"
+                onClick={() => setIsDetailsOpen((current) => !current)}
+                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+              >
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#98a2b3]">All details</p>
+                  <h3 className="mt-1 text-lg font-bold text-[#22313f]">{activeDetailSection.title}</h3>
+                </div>
+                <ChevronDown
+                  size={18}
+                  className={`text-[#667085] transition-transform ${isDetailsOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isDetailsOpen ? (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="grid gap-x-8 gap-y-0 border-t border-[#edf0f4] px-5 pb-2 pt-1 md:grid-cols-2">
+                      {activeDetailSection.items.map((item) => (
+                        <div
+                          key={`desktop-description-${activeDetailTab}-${item.label}`}
+                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#edf0f4] py-3"
+                        >
+                          <p className="text-sm text-[#667085]">{item.label}</p>
+                          <p className="text-sm font-medium text-[#22313f]">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+          </section>
+
+          <section className="space-y-3 md:hidden">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#98a2b3]">Offers</p>
               <h3 className="text-xl font-bold text-[#22313f]">Available coupons</h3>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="relative -mx-4 md:mx-0">
+              <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-white to-transparent md:hidden" />
+              <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-white to-transparent md:hidden" />
+              <div className="flex gap-3 overflow-x-auto px-4 pb-1 no-scrollbar md:grid md:grid-cols-2 md:px-0">
               {COUPON_OPTIONS.map((coupon) => {
                 const isApplied = appliedCouponCode === coupon.code;
                 return (
                   <article
                     key={coupon.code}
-                    className={`relative overflow-hidden rounded-[24px] border p-4 transition ${
+                    className={`relative w-[82%] shrink-0 overflow-hidden rounded-[24px] border p-4 transition md:w-auto ${
                       isApplied
                         ? "border-[#0B4964] bg-[#f5fbff]"
                         : "border-[#eadfdb] bg-[linear-gradient(135deg,#f5e6ff_0%,#f8efff_58%,#ffffff_100%)]"
@@ -541,6 +627,7 @@ const ServiceDetail = () => {
                   </article>
                 );
               })}
+              </div>
             </div>
           </section>
 
@@ -650,7 +737,7 @@ const ServiceDetail = () => {
             </div>
           </section>
 
-          <section className="space-y-3">
+          <section className="space-y-3 md:hidden">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#98a2b3]">Discover more</p>
@@ -668,9 +755,6 @@ const ServiceDetail = () => {
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                         referrerPolicy="no-referrer"
                       />
-                      <div className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold text-[#22313f] shadow-sm">
-                        Guest favourite
-                      </div>
                       <button
                         type="button"
                         onClick={(event) => {
@@ -702,7 +786,7 @@ const ServiceDetail = () => {
                         {item.title}
                       </h4>
                       <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="truncate text-[#0B4964]">{formatCurrency(item.price)} for 1 night</span>
+                        <span className="truncate text-[#0B4964]">{formatCurrency(item.price)} incl. setup</span>
                         <span className="inline-flex shrink-0 items-center gap-1 text-[#1f2430]">
                           <Star size={12} className="fill-current text-[#f59e0b]" />
                           {item.rating}
@@ -804,6 +888,15 @@ const ServiceDetail = () => {
             </div>
           </div>
 
+          <div className="hidden gap-4 md:flex">
+            <Button variant="outline" className="h-14 flex-1 text-base font-semibold" onClick={handleReserve}>
+              Reserve
+            </Button>
+            <Button className="h-14 flex-1 bg-[#0B4964] text-base font-semibold hover:bg-[#08384e]" onClick={handleBookNow}>
+              Book Now
+            </Button>
+          </div>
+
           <section className="hidden overflow-hidden rounded-[32px] border border-[#eadfdb] bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block">
             <button
               type="button"
@@ -848,69 +941,7 @@ const ServiceDetail = () => {
             </AnimatePresence>
           </section>
 
-          <section className="hidden rounded-[32px] border border-[#eadfdb] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block md:p-8">
-            <div className="flex flex-wrap gap-2">
-              {DETAIL_TABS.map((tab) => {
-                const isActive = activeDetailTab === tab;
-                return (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setActiveDetailTab(tab)}
-                    className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
-                      isActive
-                        ? "border-[#1f2430] bg-[#1f2430] text-white"
-                        : "border-[#d9dde3] bg-white text-[#526070]"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-[24px] border border-[#edf0f4] bg-[#fcfdff]">
-              <button
-                type="button"
-                onClick={() => setIsDetailsOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
-              >
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#98a2b3]">All details</p>
-                  <h3 className="mt-1 text-lg font-bold text-[#22313f]">{activeDetailSection.title}</h3>
-                </div>
-                <ChevronDown
-                  size={18}
-                  className={`text-[#667085] transition-transform ${isDetailsOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-
-              <AnimatePresence initial={false}>
-                {isDetailsOpen ? (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="grid gap-x-8 gap-y-0 border-t border-[#edf0f4] px-5 pb-2 pt-1 md:grid-cols-2">
-                      {activeDetailSection.items.map((item) => (
-                        <div
-                          key={`desktop-${activeDetailTab}-${item.label}`}
-                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#edf0f4] py-3"
-                        >
-                          <p className="text-sm text-[#667085]">{item.label}</p>
-                          <p className="text-sm font-medium text-[#22313f]">{item.value}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </div>
-          </section>
-
-          <div className="rounded-[32px] border border-[#eadfdb] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:p-8">
+          <div className="rounded-[32px] border border-[#eadfdb] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:hidden md:p-8">
             <div className="flex items-center gap-2 text-[#0B4964]">
               <BadgeAlert size={18} />
               <h2 className="text-xl font-bold">FAQs</h2>
@@ -949,14 +980,107 @@ const ServiceDetail = () => {
             </div>
           </div>
 
-          <div className="hidden gap-4 md:flex">
-            <Button variant="outline" className="h-14 flex-1 text-base font-semibold" onClick={handleReserve}>
-              Reserve
-            </Button>
-            <Button className="h-14 flex-1 bg-[#0B4964] text-base font-semibold hover:bg-[#08384e]" onClick={handleBookNow}>
-              Book Now
-            </Button>
+        </div>
+      </div>
+
+      <section className="hidden space-y-3 md:block">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#98a2b3]">Discover more</p>
+            <h3 className="text-xl font-bold text-[#22313f]">Similar decorations</h3>
           </div>
+        </div>
+        <div className="grid grid-cols-4 gap-4">
+          {similarServices.map((item) => (
+            <Link key={`desktop-${item.id}`} to={`/service/${item.id}`} className="group block">
+              <article className="space-y-2">
+                <div className="relative aspect-square overflow-hidden rounded-[22px] bg-[#f8fafc]">
+                  <img
+                    src={item.images[0]}
+                    alt={item.title}
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    referrerPolicy="no-referrer"
+                  />
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!ensureAuthenticated()) return;
+                      const next = toggleWishlist(item.id);
+                      const isSaved = next.includes(item.id);
+                      setWishlistIds(next);
+                      toast.success(isSaved ? "Added to wishlist" : "Removed from wishlist");
+                    }}
+                    className="absolute right-2 top-2 rounded-full bg-[#ffffffdd] p-1.5 text-[#22313f] shadow-sm"
+                  >
+                    <Heart
+                      size={14}
+                      className={wishlistIds.includes(item.id) ? "fill-[#FB2965] text-[#FB2965]" : ""}
+                    />
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <h4
+                    className="overflow-hidden text-sm font-semibold leading-5 text-[#22313f]"
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                    }}
+                  >
+                    {item.title}
+                  </h4>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate text-[#0B4964]">{formatCurrency(item.price)} incl. setup</span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[#1f2430]">
+                      <Star size={12} className="fill-current text-[#f59e0b]" />
+                      {item.rating}
+                    </span>
+                  </div>
+                </div>
+              </article>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <div className="hidden rounded-[32px] border border-[#eadfdb] bg-white p-8 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block">
+        <div className="flex items-center gap-2 text-[#0B4964]">
+          <BadgeAlert size={18} />
+          <h2 className="text-xl font-bold">FAQs</h2>
+        </div>
+        <div className="mt-5 space-y-3">
+          {FAQ_ITEMS.map((item, index) => {
+            const isOpen = openFaq === index;
+            return (
+              <div key={`desktop-${item.question}`} className="overflow-hidden rounded-2xl border border-[#edf0f4]">
+                <button
+                  type="button"
+                  onClick={() => setOpenFaq(isOpen ? -1 : index)}
+                  className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+                >
+                  <span className="font-semibold text-[#22313f]">{item.question}</span>
+                  <ChevronDown
+                    size={18}
+                    className={`text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {isOpen ? (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <p className="px-5 pb-5 text-sm leading-6 text-[#667085]">{item.answer}</p>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+            );
+          })}
         </div>
       </div>
 

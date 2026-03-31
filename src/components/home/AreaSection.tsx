@@ -39,14 +39,11 @@ export const AreaSection = ({ title, services }: AreaSectionProps) => {
                   <button className="absolute top-3 right-3 w-8 h-8 bg-white/80 backdrop-blur-sm rounded-full flex items-center justify-center text-gray-600 hover:text-red-500 transition-colors">
                     <Heart size={18} />
                   </button>
-                  <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg shadow-sm">
-                    <span className="text-[10px] font-bold text-[#0B4964] uppercase tracking-wider">Guest favourite</span>
-                  </div>
                 </div>
                 <h3 className="font-bold text-[#0B4964] text-sm mb-1 line-clamp-1 group-hover:text-[#FB2965] transition-colors">{service.title}</h3>
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col">
-                    <span className="text-sm font-bold text-gray-900">₹{service.price.toLocaleString()} for 1 night</span>
+                    <span className="text-sm font-bold text-gray-900">₹{service.price.toLocaleString()} incl. setup</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Star className="text-yellow-400 fill-yellow-400" size={14} />
