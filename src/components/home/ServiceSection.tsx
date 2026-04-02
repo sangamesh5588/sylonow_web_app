@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Service } from "../../types";
-import { Badge } from "../ui";
 import { formatCurrency } from "../../lib/utils";
 import { motion } from "motion/react";
 import { ChevronRight, Heart, Star } from "lucide-react";
@@ -19,6 +18,7 @@ interface ServiceSectionProps {
 const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: number }) => {
   const { isAuthenticated, setShowLoginModal } = useAuth();
   const [isWishlisted, setIsWishlisted] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
 
   useEffect(() => {
     const wishlist = readWishlist();
@@ -44,20 +44,27 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
   return (
     <motion.div
       key={service.id}
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0 }}
+      whileInView={{ opacity: 1 }}
       viewport={{ once: true }}
-      transition={{ delay: index * 0.1 }}
-      className="min-w-[160px] w-[160px] md:min-w-[280px] md:w-[280px]"
+      transition={{ delay: index * 0.04, duration: 0.3 }}
+      className="min-w-[160px] w-[160px] md:min-w-[280px] md:w-[280px] flex-shrink-0"
     >
-      <Link to={`/service/${service.id}`}>
+      <Link to={`/category/${encodeURIComponent(service.category)}/service/${service.id}`}>
         <div className="group cursor-pointer">
           <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 shadow-sm group-hover:shadow-md transition-all duration-500">
+            {!imgLoaded && (
+              <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
+            )}
             <img
               src={service.images[0]}
               alt={service.title}
-              className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700"
+              className={`w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
+              loading={index === 0 ? "eager" : "lazy"}
+              fetchPriority={index === 0 ? "high" : "auto"}
+              decoding="async"
               referrerPolicy="no-referrer"
+              onLoad={() => setImgLoaded(true)}
             />
             <button
               onClick={handleWishlistClick}

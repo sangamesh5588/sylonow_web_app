@@ -2,7 +2,7 @@
 declare global {
   interface Window {
     initSendOTP: (config: any) => any;
-    sendOtp: () => Promise<any>;
+    sendOtp: (identifier?: string) => Promise<any>;
     verifyOtp: (otp: string) => Promise<any>;
     retryOtp: (type: string) => Promise<any>;
   }

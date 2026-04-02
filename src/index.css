@@ -1,6 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Para";
+  src:
+    url("../para/ParaRegular.woff2") format("woff2"),
+    url("../para/ParaRegular.woff") format("woff"),
+    url("../para/ParaRegular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
   --color-primary: #0B4964;
@@ -25,6 +36,23 @@ body,
 body {
   background-color: var(--color-background);
   color: var(--color-text-main);
+}
+
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
 }
 
 .no-scrollbar::-webkit-scrollbar {

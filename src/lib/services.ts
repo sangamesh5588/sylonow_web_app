@@ -19,13 +19,23 @@ interface DbServiceRow {
   inclusions: string[] | null;
   add_ons: Addon[] | null;
   theme_tags: string[] | null;
+  area_tags: string[] | null;
   is_featured: boolean | null;
+  is_featured_main: boolean | null;
+  is_featured_collage: boolean | null;
+  is_suggested: boolean | null;
   is_active: boolean | null;
   is_verified: boolean | null;
+  latitude: number | null;
+  longitude: number | null;
+  free_service_km: number | null;
+  extra_charges_per_km: number | null;
+  booking_notice: string | null;
+  booking_terms: Service["bookingTerms"] | null;
 }
 
 const SELECT_FIELDS =
-  "id, title, description, original_price, offer_price, customised_price, rating, reviews_count, category, cover_photo, photos, inclusions, add_ons, theme_tags, is_featured, is_active, is_verified";
+  "id, title, description, original_price, offer_price, customised_price, rating, reviews_count, category, cover_photo, photos, inclusions, add_ons, theme_tags, area_tags, is_featured, is_featured_main, is_featured_collage, is_suggested, is_active, is_verified, latitude, longitude, free_service_km, extra_charges_per_km, booking_notice, booking_terms";
 
 function mapRow(row: DbServiceRow): Service {
   const images: string[] = [];
@@ -45,9 +55,19 @@ function mapRow(row: DbServiceRow): Service {
     images,
     inclusions: row.inclusions || [],
     addons: row.add_ons || [],
-    location: "Bangalore",
+    location: "Bengaluru",
     tags: row.theme_tags || [],
+    areaTags: row.area_tags || [],
     trending: row.is_featured || false,
+    featuredMain: row.is_featured_main || false,
+    featuredCollage: row.is_featured_collage || false,
+    isSuggested: row.is_suggested || false,
+    latitude: row.latitude ? Number(row.latitude) : undefined,
+    longitude: row.longitude ? Number(row.longitude) : undefined,
+    freeServiceKm: row.free_service_km ? Number(row.free_service_km) : undefined,
+    extraChargesPerKm: row.extra_charges_per_km ? Number(row.extra_charges_per_km) : undefined,
+    bookingNotice: row.booking_notice ?? undefined,
+    bookingTerms: row.booking_terms ?? undefined,
   };
 }
 
@@ -124,4 +144,50 @@ export async function fetchCategories(): Promise<string[]> {
   if (error || !data) return [];
   const cats = [...new Set(data.map((r: { category: string }) => r.category).filter(Boolean))];
   return cats.sort();
+}
+
+export interface HomeSection {
+  id: string;
+  title: string;
+  section_type: "flag" | "area" | "suggested";
+  flag_column: string | null;
+  min_lat: number | null;
+  max_lat: number | null;
+  min_lng: number | null;
+  max_lng: number | null;
+  sort_order: number;
+}
+
+/** Fetch all active home sections ordered by sort_order */
+export async function fetchHomeSections(): Promise<HomeSection[]> {
+  const { data, error } = await supabase
+    .from("home_sections")
+    .select("id, title, section_type, flag_column, min_lat, max_lat, min_lng, max_lng, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  if (error || !data) return [];
+  return data as HomeSection[];
+}
+
+export interface PricingTier {
+  price_from: number;
+  price_to: number;
+  advance_amount: number;
+  label: string | null;
+}
+
+export async function fetchPricingLogic(): Promise<PricingTier[]> {
+  const { data, error } = await supabase
+    .from("pricing_logic")
+    .select("price_from, price_to, advance_amount, label")
+    .eq("is_active", true)
+    .order("price_from");
+  if (error || !data) return [];
+  return data as PricingTier[];
+}
+
+export function getAdvanceAmount(tiers: PricingTier[], servicePrice: number): number | null {
+  const tier = tiers.find((t) => servicePrice >= t.price_from && servicePrice < t.price_to);
+  return tier ? tier.advance_amount : null;
 }

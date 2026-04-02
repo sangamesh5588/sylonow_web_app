@@ -4,42 +4,60 @@ import { ChevronLeft } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Service } from "../types";
-import { fetchAllServices } from "../lib/services";
+import { fetchAllServices, fetchHomeSections, HomeSection } from "../lib/services";
+import { getServicesInArea } from "../lib/areas";
 
 const SectionDetail = () => {
   const { sectionId } = useParams();
   const navigate = useNavigate();
   const [allServices, setAllServices] = useState<Service[]>([]);
+  const [section, setSection] = useState<HomeSection | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    fetchAllServices().then((data) => {
-      setAllServices(data);
+    Promise.all([fetchAllServices(), fetchHomeSections()]).then(([svcData, secData]) => {
+      setAllServices(svcData);
+      const found = secData.find((s) => s.id === sectionId) ?? null;
+      setSection(found);
       setLoading(false);
     });
-  }, []);
+  }, [sectionId]);
 
-  const getSectionData = () => {
-    if (sectionId === "trending") {
-      return { title: "Trending now", services: allServices.filter(s => s.trending) };
-    }
-    if (sectionId === "popular") {
-      return { title: "Popular picks", services: [...allServices].sort((a, b) => b.rating - a.rating).slice(0, 8) };
-    }
-    // Match category by converting sectionId back (e.g. "baby-shower" → match "Baby shower")
-    const matchedCategory = allServices.find(
-      s => s.category.toLowerCase().replace(/\s+/g, "-") === sectionId
-    )?.category;
-
-    if (matchedCategory) {
-      return { title: matchedCategory, services: allServices.filter(s => s.category === matchedCategory) };
-    }
-
-    return { title: "All Services", services: allServices };
+  const FLAG_COL_MAP: Record<string, keyof Service> = {
+    is_featured_main: "featuredMain",
+    is_featured_collage: "featuredCollage",
   };
 
-  const { title, services } = getSectionData();
+  const resolveServices = (): Service[] => {
+    if (!section) return [];
+    if (section.section_type === "flag" && section.flag_column) {
+      const col = FLAG_COL_MAP[section.flag_column];
+      if (!col) return [];
+      return allServices.filter((s) => s[col] === true);
+    }
+    if (section.section_type === "suggested") {
+      return allServices.filter((s) => s.isSuggested);
+    }
+    if (
+      section.section_type === "area" &&
+      section.min_lat != null &&
+      section.max_lat != null &&
+      section.min_lng != null &&
+      section.max_lng != null
+    ) {
+      return getServicesInArea(allServices, {
+        min_lat: section.min_lat,
+        max_lat: section.max_lat,
+        min_lng: section.min_lng,
+        max_lng: section.max_lng,
+      });
+    }
+    return [];
+  };
+
+  const services = resolveServices();
+  const title = section?.title ?? "All Services";
 
   return (
     <div className="min-h-screen bg-gray-50/50 pb-20">
@@ -51,9 +69,7 @@ const SectionDetail = () => {
           >
             <ChevronLeft size={24} className="text-[#0B4964]" />
           </button>
-          {sectionId !== "popular" && (
-            <h1 className="text-xl font-bold text-[#0B4964]">{title}</h1>
-          )}
+          <h1 className="text-xl font-bold text-[#0B4964]">{title}</h1>
         </div>
       </div>
 

@@ -15,6 +15,7 @@ interface ServiceCardProps {
 export const ServiceCard = ({ service, variant = "default" }: ServiceCardProps) => {
   const { isAuthenticated, setShowLoginModal } = useAuth();
   const [isWishlisted, setIsWishlisted] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
 
   useEffect(() => {
     const wishlist = readWishlist();
@@ -50,7 +51,7 @@ export const ServiceCard = ({ service, variant = "default" }: ServiceCardProps) 
   const isCompact = variant === "compact";
 
   return (
-    <Link to={`/service/${service.id}`} className="block group">
+    <Link to={`/category/${encodeURIComponent(service.category)}/service/${service.id}`} className="block group">
       <article
         className={`overflow-hidden bg-white ring-1 ring-[#f0e7e2] transition-transform duration-300 group-hover:-translate-y-1 ${
           isCompact
@@ -65,11 +66,17 @@ export const ServiceCard = ({ service, variant = "default" }: ServiceCardProps) 
               : "aspect-[1.32/1] rounded-[24px] md:aspect-[1.08/1] md:rounded-[30px]"
           }`}
         >
+          {!imgLoaded && (
+            <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
+          )}
           <img
             src={service.images[0]}
             alt={service.title}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className={`h-full w-full object-cover transition-transform duration-500 group-hover:scale-105 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
+            loading="lazy"
+            decoding="async"
             referrerPolicy="no-referrer"
+            onLoad={() => setImgLoaded(true)}
           />
 
           <div className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#163447]/80 via-[#163447]/40 to-transparent text-white ${isCompact ? "p-3 md:p-5" : "p-4 md:p-5"}`}>

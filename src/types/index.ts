@@ -1,5 +1,16 @@
 export type Category = string;
 
+export interface BookingTermItem {
+  title: string;
+  description: string;
+}
+
+export interface BookingTerms {
+  specifications: BookingTermItem[];
+  service_policy: BookingTermItem[];
+  need_to_know: BookingTermItem[];
+}
+
 export interface Service {
   id: string;
   title: string;
@@ -15,7 +26,17 @@ export interface Service {
   location: string;
   distance?: string;
   tags?: string[];
+  areaTags?: string[];
   trending?: boolean;
+  featuredMain?: boolean;
+  featuredCollage?: boolean;
+  isSuggested?: boolean;
+  latitude?: number;
+  longitude?: number;
+  freeServiceKm?: number;
+  extraChargesPerKm?: number;
+  bookingNotice?: string;
+  bookingTerms?: BookingTerms;
 }
 
 export interface Addon {
@@ -63,4 +84,5 @@ export interface Order {
   address: Address;
   createdAt: string;
   scheduledAt: string;
+  qrCode?: string;
 }

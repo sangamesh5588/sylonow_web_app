@@ -1,66 +1,87 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-
-interface User {
-  phoneNumber: string;
-  name?: string;
-}
+import { Session, User } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
+  profile: { full_name: string; phone_number: string } | null;
   isAuthenticated: boolean;
-  login: (phoneNumber: string, name?: string) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   showLoginModal: boolean;
   setShowLoginModal: (show: boolean) => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<{ full_name: string; phone_number: string } | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
 
-  // Load user from localStorage on mount
+  const fetchProfile = async (userId: string) => {
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('full_name, phone_number')
+      .eq('auth_user_id', userId)
+      .maybeSingle();
+    if (data) setProfile(data);
+    return data;
+  };
+
+  const refreshProfile = async () => {
+    if (user) await fetchProfile(user.id);
+  };
+
   useEffect(() => {
-    const storedUser = localStorage.getItem('sylonow_user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Error parsing stored user:', error);
-        localStorage.removeItem('sylonow_user');
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) fetchProfile(session.user.id);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
       }
-    }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = (phoneNumber: string, name?: string) => {
-    const newUser = { phoneNumber, name };
-    setUser(newUser);
-    localStorage.setItem('sylonow_user', JSON.stringify(newUser));
-    setShowLoginModal(false);
-  };
-
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('sylonow_user');
+    setSession(null);
+    setProfile(null);
   };
 
-  const value = {
-    user,
-    isAuthenticated: !!user,
-    login,
-    logout,
-    showLoginModal,
-    setShowLoginModal,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{
+      user,
+      session,
+      profile,
+      isAuthenticated: !!user,
+      logout,
+      showLoginModal,
+      setShowLoginModal,
+      refreshProfile,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };

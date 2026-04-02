@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Package, Calendar, MapPin, Clock } from "lucide-react";
+import { ChevronLeft, Package, Calendar, MapPin, Clock, QrCode } from "lucide-react";
 import { motion } from "motion/react";
 import { useAuth } from "../contexts/AuthContext";
 import { readOrders } from "../lib/booking";
@@ -10,7 +10,7 @@ import { Button, Card } from "../components/ui";
 
 const Orders = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, setShowLoginModal } = useAuth();
+  const { profile, isAuthenticated, setShowLoginModal } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
 
   useEffect(() => {
@@ -20,9 +20,9 @@ const Orders = () => {
       return;
     }
 
-    const userOrders = readOrders(user?.phoneNumber);
+    const userOrders = readOrders(profile?.phone_number);
     setOrders(userOrders);
-  }, [user, isAuthenticated, navigate, setShowLoginModal]);
+  }, [profile, isAuthenticated, navigate, setShowLoginModal]);
 
   const getStatusColor = (status: Order["status"]) => {
     const colors = {
@@ -152,6 +152,21 @@ const Orders = () => {
                     {formatCurrency(order.totalAmount)}
                   </span>
                 </div>
+
+                {/* QR Code */}
+                {order.qrCode && (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <div className="flex items-center gap-2 mb-3">
+                      <QrCode size={16} className="text-[#0B4964]" />
+                      <p className="text-sm font-semibold text-[#0B4964]">Vendor Verification QR</p>
+                    </div>
+                    <div className="flex flex-col items-center gap-2 rounded-2xl bg-[#f8fafc] border border-[#edf0f4] p-4">
+                      <img src={order.qrCode} alt="Order QR Code" className="w-40 h-40" />
+                      <p className="text-[11px] text-[#98a2b3] text-center">Show this QR to the vendor to verify your booking</p>
+                      <p className="text-[10px] font-mono text-[#667085]">{order.id}</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div className="mt-4 flex gap-3">

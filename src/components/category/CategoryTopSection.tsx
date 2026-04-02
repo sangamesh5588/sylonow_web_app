@@ -1,5 +1,4 @@
-import { ArrowDownUp, SlidersHorizontal } from "lucide-react";
-import { Category } from "../../types";
+import { Navigation, SlidersHorizontal } from "lucide-react";
 
 type SortFilter = "popular" | "price-asc" | "price-desc" | "rating";
 
@@ -11,7 +10,9 @@ interface SortOption {
 interface CategoryTopSectionProps {
   activeFilterCount: number;
   isSticky: boolean;
+  nearMe: boolean;
   onFilterOpen: () => void;
+  onNearMeToggle: () => void;
   onSortChange: (sort: SortFilter) => void;
   selectedSort: SortFilter;
   sortOptions: readonly SortOption[];
@@ -20,7 +21,9 @@ interface CategoryTopSectionProps {
 export const CategoryTopSection = ({
   activeFilterCount,
   isSticky,
+  nearMe,
   onFilterOpen,
+  onNearMeToggle,
   onSortChange,
   selectedSort,
   sortOptions,
@@ -52,6 +55,19 @@ export const CategoryTopSection = ({
               ) : null}
             </button>
 
+            <button
+              type="button"
+              onClick={onNearMeToggle}
+              className={`flex items-center gap-2 rounded-full border px-4 py-2 whitespace-nowrap transition-colors ${
+                nearMe
+                  ? "border-[#0B4964] bg-[#0B4964] text-white"
+                  : "border-gray-300 bg-white hover:border-[#0B4964] text-gray-700"
+              }`}
+            >
+              <Navigation size={16} className={nearMe ? "text-white" : "text-gray-600"} />
+              <span className="text-sm font-medium">Near Me</span>
+            </button>
+
             {sortOptions.map((option) => {
               const isActive = option.value === selectedSort;
               return (
@@ -65,9 +81,6 @@ export const CategoryTopSection = ({
                       : "border-gray-300 bg-white hover:border-[#0B4964]"
                   }`}
                 >
-                  {option.value === "popular" ? (
-                    <ArrowDownUp size={16} className={isActive ? "text-white" : "text-gray-600"} />
-                  ) : null}
                   <span className={`text-sm font-medium ${isActive ? "text-white" : "text-gray-700"}`}>
                     {option.label}
                   </span>

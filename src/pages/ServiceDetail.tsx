@@ -1,9 +1,9 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, TouchEvent, useEffect, useMemo, useRef, useState } from "react";
+import SEO from "../components/SEO";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import {
   BadgeAlert,
-  Bookmark,
   CalendarDays,
   Check,
   ChevronDown,
@@ -15,54 +15,21 @@ import {
   Search,
   Share2,
   ShieldCheck,
-  Sparkles,
   Star,
   Timer,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge, Button } from "../components/ui";
-import { readWishlist, saveBookingDraft, toggleWishlist } from "../lib/booking";
+import { readWishlist, saveBookingDraft, toggleWishlist, upsertCartItem } from "../lib/booking";
 import { formatCurrency } from "../lib/utils";
 import { fetchServiceById, fetchAllServices } from "../lib/services";
 import { Service } from "../types";
 import { useAuth } from "../contexts/AuthContext";
+import { supabase } from "../lib/supabase";
 
-const DATE_OPTIONS = Array.from({ length: 15 }, (_, index) => {
-  const baseDate = new Date();
-  baseDate.setDate(baseDate.getDate() + index);
-
-  const label =
-    index === 0
-      ? "Today"
-      : index === 1
-        ? "Tomorrow"
-        : new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(baseDate);
-
-  return {
-    label,
-    date: baseDate.toISOString().split("T")[0],
-    display: new Intl.DateTimeFormat("en-US", {
-      day: "2-digit",
-      month: "short",
-    }).format(baseDate),
-  };
-});
-
-const TIME_GROUPS = [
-  {
-    label: "Morning",
-    slots: ["9:00 AM", "10:30 AM", "12:00 PM"],
-  },
-  {
-    label: "Afternoon",
-    slots: ["1:30 PM", "3:00 PM", "4:30 PM"],
-  },
-  {
-    label: "Evening",
-    slots: ["6:00 PM", "7:30 PM", "9:00 PM"],
-  },
-] as const;
+import { parseNoticeHours, getAvailableDates, getAvailableSlotsForDate } from "../lib/bookingAvailability";
 
 const VENUE_TYPES = ["Home", "Apartment", "Restaurant", "Terrace", "Banquet", "Villa", "Office"] as const;
 
@@ -79,13 +46,6 @@ const FAQ_ITEMS = [
     question: "What happens if I need to reschedule?",
     answer: "You can request a reschedule based on slot availability. Earlier notice improves the chances of moving your booking smoothly.",
   },
-];
-
-const PRODUCT_HIGHLIGHTS = [
-  { icon: Sparkles, label: "Premium Balloon Arch Setup" },
-  { icon: Check, label: "Customizable Theme Colors" },
-  { icon: ShieldCheck, label: "LED Name Backdrop" },
-  { icon: CalendarDays, label: "Cake Table Decoration Included" },
 ];
 
 const DETAIL_TABS = ["Specifications", "Service policy", "Need to know"] as const;
@@ -148,10 +108,64 @@ const COUPON_OPTIONS = [
   },
 ] as const;
 
+const SIMILARITY_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "arch",
+  "at",
+  "backdrop",
+  "balloon",
+  "balloons",
+  "by",
+  "decoration",
+  "decorations",
+  "for",
+  "in",
+  "of",
+  "on",
+  "setup",
+  "setups",
+  "the",
+  "theme",
+  "with",
+]);
+
+const getSimilarityTokens = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2 && !SIMILARITY_STOP_WORDS.has(token));
+
+const InclusionList = ({ items }: { items: string[] }) => {
+  if (items.length === 0) {
+    return (
+      <div className="px-1 pb-1 pt-2 text-sm text-[#667085]">
+        Inclusions will be updated soon for this setup.
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-[#edf0f4]">
+      {items.map((item) => (
+        <div key={item} className="flex items-start gap-3 py-4">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef4f8] text-[#0B4964]">
+            <Check size={14} />
+          </div>
+          <p className="text-[15px] font-medium leading-6 text-[#22313f]">{item}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const ServiceDetail = () => {
   const { serviceId } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated, setShowLoginModal } = useAuth();
+  const { isAuthenticated, profile, setShowLoginModal } = useAuth();
   const [service, setService] = useState<Service | null>(null);
   const [allServices, setAllServices] = useState<Service[]>([]);
   const [loadingService, setLoadingService] = useState(true);
@@ -159,17 +173,34 @@ const ServiceDetail = () => {
   useEffect(() => {
     if (!serviceId) return;
     setLoadingService(true);
-    Promise.all([fetchServiceById(serviceId), fetchAllServices()]).then(([svc, all]) => {
+    fetchServiceById(serviceId).then((svc) => {
       setService(svc);
-      setAllServices(all);
+      setLoadingService(false);
+      if (svc) {
+        const noticeHours = parseNoticeHours(svc.bookingNotice);
+        const dates = getAvailableDates(noticeHours);
+        if (dates.length > 0) {
+          const firstDate = dates[0].date;
+          setSelectedDate(firstDate);
+          const slots = getAvailableSlotsForDate(firstDate, noticeHours);
+          const firstSlot = slots[0] ?? "9:00 AM";
+          setSelectedTime(firstSlot);
+          if (["1:30 PM", "3:00 PM", "4:30 PM"].includes(firstSlot)) setSelectedTimeGroup("Afternoon");
+          else if (["6:00 PM", "7:30 PM", "9:00 PM"].includes(firstSlot)) setSelectedTimeGroup("Evening");
+          else setSelectedTimeGroup("Morning");
+        }
+      }
+    }).catch(() => {
       setLoadingService(false);
     });
+    fetchAllServices().then(setAllServices).catch(() => {});
   }, [serviceId]);
 
   const [activeImage, setActiveImage] = useState(0);
-  const [selectedDate, setSelectedDate] = useState(DATE_OPTIONS[0].date);
-  const [selectedTimeGroup, setSelectedTimeGroup] = useState<(typeof TIME_GROUPS)[number]["label"]>("Morning");
-  const [selectedTime, setSelectedTime] = useState("9:00 AM");
+  const [isImageLightboxOpen, setIsImageLightboxOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedTimeGroup, setSelectedTimeGroup] = useState<"Morning" | "Afternoon" | "Evening">("Morning");
+  const [selectedTime, setSelectedTime] = useState("");
   const [isScheduleOpen, setIsScheduleOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(0);
   const [searchValue, setSearchValue] = useState("");
@@ -179,17 +210,55 @@ const ServiceDetail = () => {
   const [isHighlightsOpen, setIsHighlightsOpen] = useState(true);
   const [activeDetailTab, setActiveDetailTab] = useState<(typeof DETAIL_TABS)[number]>("Specifications");
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [imageDirection, setImageDirection] = useState(0);
   const mobileTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const thumbnailStripRef = useRef<HTMLDivElement | null>(null);
+  const touchStartXRef = useRef<number | null>(null);
   const [isMobileTitleWrapped, setIsMobileTitleWrapped] = useState(false);
+  const [needFastOpen, setNeedFastOpen] = useState(false);
+  const [fastDate, setFastDate] = useState("");
+  const [fastTime, setFastTime] = useState("");
+  const [fastPhone, setFastPhone] = useState("");
+  const [fastSubmitting, setFastSubmitting] = useState(false);
+  const [fastDone, setFastDone] = useState(false);
 
   const discount =
     service?.originalPrice && service.originalPrice > service.price
       ? Math.round(((service.originalPrice - service.price) / service.originalPrice) * 100)
       : 0;
 
+  const noticeHours = parseNoticeHours(service?.bookingNotice);
+  const dateOptions = useMemo(() => getAvailableDates(noticeHours), [noticeHours]);
+  const availableSlots = useMemo(
+    () => getAvailableSlotsForDate(selectedDate, noticeHours),
+    [selectedDate, noticeHours]
+  );
+  const timeGroups = useMemo(() => [
+    { label: "Morning" as const, slots: availableSlots.filter((s) => ["9:00 AM", "10:30 AM", "12:00 PM"].includes(s)) },
+    { label: "Afternoon" as const, slots: availableSlots.filter((s) => ["1:30 PM", "3:00 PM", "4:30 PM"].includes(s)) },
+    { label: "Evening" as const, slots: availableSlots.filter((s) => ["6:00 PM", "7:30 PM", "9:00 PM"].includes(s)) },
+  ].filter((g) => g.slots.length > 0), [availableSlots]);
+
+  // When date changes, auto-select first group with slots and its first slot
+  useEffect(() => {
+    if (timeGroups.length === 0) return;
+    const currentGroupStillValid = timeGroups.some((g) => g.label === selectedTimeGroup);
+    if (!currentGroupStillValid) {
+      const firstGroup = timeGroups[0];
+      setSelectedTimeGroup(firstGroup.label);
+      setSelectedTime(firstGroup.slots[0]);
+    } else {
+      // Group is still valid but make sure the selected slot is still available
+      const currentGroup = timeGroups.find((g) => g.label === selectedTimeGroup)!;
+      if (!currentGroup.slots.includes(selectedTime)) {
+        setSelectedTime(currentGroup.slots[0]);
+      }
+    }
+  }, [timeGroups]);
+
   const selectedGroup = useMemo(
-    () => TIME_GROUPS.find((group) => group.label === selectedTimeGroup) || TIME_GROUPS[0],
-    [selectedTimeGroup]
+    () => timeGroups.find((group) => group.label === selectedTimeGroup) ?? timeGroups[0],
+    [timeGroups, selectedTimeGroup]
   );
   const appliedCoupon = useMemo(
     () => COUPON_OPTIONS.find((coupon) => coupon.code === appliedCouponCode) ?? null,
@@ -201,20 +270,76 @@ const ServiceDetail = () => {
     return Math.round(service.price * (1 - appliedCoupon.discountPercent / 100));
   }, [appliedCoupon, service]);
   const similarServices = useMemo(
-    () =>
-      allServices.filter((item) => item.id !== serviceId)
-        .sort((a, b) => {
-          const categoryScore =
-            Number(b.category === service?.category) - Number(a.category === service?.category);
-          if (categoryScore !== 0) return categoryScore;
-          const trendingScore = Number(b.trending) - Number(a.trending);
-          if (trendingScore !== 0) return trendingScore;
-          return b.rating - a.rating;
+    () => {
+      if (!service) return [];
+
+      const referencePrice = service.price;
+      const targetTitleTokens = new Set(getSimilarityTokens(service.title));
+      const targetMetaTokens = new Set(
+        getSimilarityTokens([service.category, ...(service.tags ?? [])].join(" "))
+      );
+
+      return allServices
+        .filter((item) => item.id !== service.id)
+        .map((item) => {
+          const itemTitleTokens = new Set(getSimilarityTokens(item.title));
+          const itemMetaTokens = new Set(
+            getSimilarityTokens([item.category, item.description, ...(item.tags ?? [])].join(" "))
+          );
+
+          let score = 0;
+
+          targetTitleTokens.forEach((token) => {
+            if (itemTitleTokens.has(token)) score += 16;
+            else if (itemMetaTokens.has(token)) score += 8;
+          });
+
+          targetMetaTokens.forEach((token) => {
+            if (itemTitleTokens.has(token)) score += 7;
+            else if (itemMetaTokens.has(token)) score += 4;
+          });
+
+          if (item.category === service.category) score += 18;
+
+          const priceGap = Math.abs(item.price - referencePrice);
+          const priceGapRatio = referencePrice > 0 ? priceGap / referencePrice : 1;
+
+          if (priceGapRatio <= 0.1) score += 18;
+          else if (priceGapRatio <= 0.2) score += 14;
+          else if (priceGapRatio <= 0.35) score += 9;
+          else if (priceGapRatio <= 0.5) score += 4;
+
+          if (item.trending) score += 3;
+          score += Math.min(item.rating, 5);
+
+          return { item, score, priceGap };
         })
-        .slice(0, 4),
-    [allServices, service?.category, serviceId]
+        .sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          if (a.priceGap !== b.priceGap) return a.priceGap - b.priceGap;
+          if (b.item.rating !== a.item.rating) return b.item.rating - a.item.rating;
+          return b.item.reviews - a.item.reviews;
+        })
+        .map(({ item }) => item)
+        .slice(0, 8);
+    },
+    [allServices, service]
   );
-  const activeDetailSection = DETAIL_CONTENT[activeDetailTab];
+  const mobileSimilarServices = similarServices.slice(0, 4);
+  const desktopSimilarServices = similarServices.slice(0, 8);
+  const activeDetailSection = useMemo(() => {
+    const tabKeyMap = {
+      Specifications: "specifications",
+      "Service policy": "service_policy",
+      "Need to know": "need_to_know",
+    } as const;
+    const key = tabKeyMap[activeDetailTab];
+    const dynamicItems = service?.bookingTerms?.[key] ?? [];
+    return {
+      title: DETAIL_CONTENT[activeDetailTab].title,
+      items: dynamicItems.map((item) => ({ label: item.title, value: item.description })),
+    };
+  }, [activeDetailTab, service]);
 
   useEffect(() => {
     const updateTitleWrap = () => {
@@ -230,10 +355,72 @@ const ServiceDetail = () => {
     return () => window.removeEventListener("resize", updateTitleWrap);
   }, [service?.title]);
 
+  useEffect(() => {
+    const strip = thumbnailStripRef.current;
+    if (!strip) return;
+
+    const activeThumb = strip.querySelector<HTMLButtonElement>(`button[data-image-index="${activeImage}"]`);
+    activeThumb?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [activeImage]);
+
+  useEffect(() => {
+    if (!isImageLightboxOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isImageLightboxOpen]);
+
+
   if (loadingService) {
     return (
-      <div className="flex justify-center py-24">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#0B4964] border-t-transparent" />
+      <div className="animate-pulse pb-32">
+        {/* Image skeleton */}
+        <div className="relative -mx-4 aspect-[1/1] bg-[#e8eaed] md:mx-0 md:aspect-[16/9] md:rounded-[28px]" />
+
+        <div className="mt-5 space-y-3 px-1">
+          {/* Title */}
+          <div className="h-6 w-3/4 rounded-full bg-[#e8eaed]" />
+          {/* Location + rating row */}
+          <div className="flex items-center gap-3">
+            <div className="h-4 w-24 rounded-full bg-[#e8eaed]" />
+            <div className="h-4 w-16 rounded-full bg-[#e8eaed]" />
+          </div>
+          {/* Tags */}
+          <div className="flex gap-2 pt-1">
+            <div className="h-7 w-20 rounded-full bg-[#e8eaed]" />
+            <div className="h-7 w-24 rounded-full bg-[#e8eaed]" />
+            <div className="h-7 w-16 rounded-full bg-[#e8eaed]" />
+          </div>
+          {/* Price row */}
+          <div className="flex items-center justify-between pt-2">
+            <div className="h-8 w-32 rounded-full bg-[#e8eaed]" />
+            <div className="h-5 w-20 rounded-full bg-[#e8eaed]" />
+          </div>
+        </div>
+
+        {/* Inclusions block */}
+        <div className="mt-6 rounded-[24px] bg-[#f4f6f8] p-5 space-y-3">
+          <div className="h-4 w-32 rounded-full bg-[#e8eaed]" />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="h-4 w-4 rounded-full bg-[#e8eaed]" />
+              <div className="h-3 rounded-full bg-[#e8eaed]" style={{ width: `${55 + i * 8}%` }} />
+            </div>
+          ))}
+        </div>
+
+        {/* Date/time row */}
+        <div className="mt-6 flex gap-3">
+          <div className="h-14 flex-1 rounded-[18px] bg-[#e8eaed]" />
+          <div className="h-14 flex-1 rounded-[18px] bg-[#e8eaed]" />
+        </div>
+
+        {/* CTA button */}
+        <div className="mt-6 h-14 w-full rounded-[18px] bg-[#e8eaed]" />
       </div>
     );
   }
@@ -241,12 +428,15 @@ const ServiceDetail = () => {
   if (!service) return <div className="py-24 text-center text-lg text-[#667085]">Service not found</div>;
 
   const isWishlisted = wishlistIds.includes(service.id);
+  const inclusionItems = Array.from(
+    new Set(service.inclusions.map((item) => item.trim()).filter(Boolean))
+  );
 
   const selectedDateLabel =
-    DATE_OPTIONS.find((option) => option.date === selectedDate)?.display ?? selectedDate;
+    dateOptions.find((option) => option.date === selectedDate)?.display ?? selectedDate;
 
   const ensureAuthenticated = () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !profile?.phone_number) {
       toast.error("Please login to continue");
       setShowLoginModal(true);
       return false;
@@ -256,15 +446,19 @@ const ServiceDetail = () => {
   };
 
   const handleReserve = () => {
-    if (!ensureAuthenticated()) return;
-    const next = toggleWishlist(service.id);
-    const isSaved = next.includes(service.id);
-    setWishlistIds(next);
-    toast.success(isSaved ? "Added to wishlist" : "Removed from wishlist");
+    upsertCartItem({
+      serviceId: service.id,
+      service,
+      selectedAddons: [],
+      date: selectedDate,
+      time: selectedTime,
+      quantity: 1,
+    });
+    toast.success("Added to cart");
   };
 
   const handleShare = async () => {
-    const shareUrl = `${window.location.origin}/service/${service.id}`;
+    const shareUrl = `${window.location.origin}/category/${encodeURIComponent(service.category)}/service/${service.id}`;
 
     if (navigator.share) {
       try {
@@ -294,8 +488,6 @@ const ServiceDetail = () => {
   };
 
   const handleBookNow = () => {
-    if (!ensureAuthenticated()) return;
-
     saveBookingDraft({
       serviceId: service.id,
       date: selectedDate,
@@ -306,12 +498,76 @@ const ServiceDetail = () => {
     navigate("/checkout");
   };
 
+  // Need it fast
+  const handleNeedFast = async () => {
+    if (!fastDate || !fastTime) {
+      toast.error("Please select a date and time");
+      return;
+    }
+    setFastSubmitting(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from("need_fast").insert({
+      service_id: service.id,
+      service_title: service.title,
+      preferred_date: fastDate,
+      preferred_time: fastTime,
+      phone: fastPhone || null,
+      user_id: user?.id || null,
+    });
+    setFastSubmitting(false);
+    if (error) {
+      toast.error("Something went wrong. Please try again.");
+      return;
+    }
+    setFastDone(true);
+  };
+
+  const openImageLightbox = () => setIsImageLightboxOpen(true);
+  const closeImageLightbox = () => setIsImageLightboxOpen(false);
+
+  const handlePrevImage = () => {
+    setImageDirection(-1);
+    setActiveImage((current) => (current === 0 ? service.images.length - 1 : current - 1));
+  };
+
+  const handleNextImage = () => {
+    setImageDirection(1);
+    setActiveImage((current) => (current === service.images.length - 1 ? 0 : current + 1));
+  };
+
+  const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    touchStartXRef.current = event.touches[0]?.clientX ?? null;
+  };
+
+  const handleTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const startX = touchStartXRef.current;
+    const endX = event.changedTouches[0]?.clientX;
+    touchStartXRef.current = null;
+
+    if (startX == null || endX == null) return;
+
+    const deltaX = startX - endX;
+    if (Math.abs(deltaX) < 40) return;
+
+    if (deltaX > 0) {
+      handleNextImage();
+    } else {
+      handlePrevImage();
+    }
+  };
+
   return (
-    <div className="space-y-8 pb-32 md:pb-14">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8 pb-32 pt-[68px] md:pt-0 md:pb-14">
+      <SEO
+        title={`${service.title} - ${service.category} Decoration Bangalore`}
+        description={`Book ${service.title} in Bangalore starting at ₹${service.price.toLocaleString("en-IN")}. Rated ${service.rating}/5. ${service.description?.slice(0, 100) || "Professional setup included."}`}
+        canonical={`/category/${encodeURIComponent(service.category)}/service/${service.id}`}
+        ogImage={service.images?.[0]}
+      />
+      <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-between bg-white px-4 py-3 md:static md:px-0 md:py-0">
         <button
           onClick={() => navigate(-1)}
-          className="relative z-[60] flex h-11 w-11 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfdb] transition-all active:scale-90"
+          className="relative z-[60] flex h-11 w-11 items-center justify-center rounded-2xl bg-white ring-1 ring-[#eadfdb] transition-all active:scale-90 md:hidden"
         >
           <ChevronLeft size={22} className="text-[#0B4964]" />
         </button>
@@ -322,62 +578,134 @@ const ServiceDetail = () => {
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
               placeholder='Search "Decorations"'
-              className="h-11 w-full rounded-full border border-[#eadfdb] bg-white pl-10 pr-4 text-sm text-[#22313f] shadow-sm outline-none transition focus:border-[#0B4964]"
+              className="h-11 w-full rounded-full border border-[#eadfdb] bg-white pl-10 pr-4 text-sm text-[#22313f] outline-none transition focus:border-[#0B4964]"
             />
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#98a2b3]" />
           </div>
         </form>
-        <button
-          onClick={handleReserve}
-          className="hidden items-center gap-2 rounded-full border border-[#eadfdb] bg-white px-4 py-2 text-sm font-medium text-[#0B4964] md:inline-flex"
-        >
-          <Bookmark size={16} />
-          Reserve
-        </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1.15fr_0.95fr]">
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1fr_1fr]">
         <div className="space-y-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="relative aspect-[1.08/0.82] overflow-hidden rounded-[34px] bg-[#f8f8f8] md:aspect-[1.08/0.82]"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            onClick={openImageLightbox}
+            className="relative aspect-square overflow-hidden rounded-[34px] bg-[#f8f8f8] md:aspect-[4/3]"
           >
-            <img
-              src={service.images[activeImage] ?? service.images[0]}
-              alt={service.title}
-              className="h-full w-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#17374b]/75 to-transparent p-6 text-white md:pb-10">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/18 px-3 py-1 text-xs font-semibold backdrop-blur-sm">
-                <ShieldCheck size={14} />
-                Setup included
-              </div>
-            </div>
+            <AnimatePresence initial={false} mode="wait">
+              <motion.img
+                key={`${service.id}-${activeImage}`}
+                src={service.images[activeImage] ?? service.images[0]}
+                alt={service.title}
+                initial={{ opacity: 0, x: imageDirection >= 0 ? 34 : -34 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: imageDirection >= 0 ? -34 : 34 }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                fetchPriority="high"
+                decoding="async"
+              />
+            </AnimatePresence>
+            {service.images.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={handlePrevImage}
+                  onClickCapture={(event) => event.stopPropagation()}
+                  className="absolute left-4 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/92 text-[#22313f] shadow-sm backdrop-blur-sm transition hover:bg-white"
+                  aria-label="Previous image"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextImage}
+                  onClickCapture={(event) => event.stopPropagation()}
+                  className="absolute right-4 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/92 text-[#22313f] shadow-sm backdrop-blur-sm transition hover:bg-white"
+                  aria-label="Next image"
+                >
+                  <ChevronLeft size={18} className="rotate-180" />
+                </button>
+              </>
+            ) : null}
             <div className="absolute right-4 top-4 flex gap-2 md:hidden">
               <button
                 onClick={handleShare}
+                onClickCapture={(event) => event.stopPropagation()}
                 className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/95 text-[#22313f] shadow-sm"
               >
                 <Share2 size={18} />
               </button>
               <button
                 onClick={handleReserve}
+                onClickCapture={(event) => event.stopPropagation()}
                 className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/95 text-[#22313f] shadow-sm"
               >
                 <Heart size={18} className={isWishlisted ? "fill-[#FB2965] text-[#FB2965]" : ""} />
               </button>
             </div>
+            {service.images.length > 1 ? (
+              <>
+                <div className="absolute inset-x-0 bottom-4 flex justify-center md:hidden">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-[#111827]/36 px-3 py-2 backdrop-blur-sm">
+                    {service.images.map((_, index) => (
+                      <button
+                        key={`mobile-image-dot-${index}`}
+                        type="button"
+                        onClick={() => {
+                          setImageDirection(index > activeImage ? 1 : -1);
+                          setActiveImage(index);
+                        }}
+                        onClickCapture={(event) => event.stopPropagation()}
+                        aria-label={`View image ${index + 1}`}
+                        className={`h-2.5 rounded-full transition-all ${
+                          activeImage === index ? "w-5 bg-white" : "w-2.5 bg-white/45"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="absolute inset-x-0 bottom-5 hidden justify-center md:flex">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-white/82 px-3 py-2 backdrop-blur-sm ring-1 ring-white/60">
+                    {service.images.map((_, index) => (
+                      <button
+                        key={`desktop-image-dot-${index}`}
+                        type="button"
+                        onClick={() => {
+                          setImageDirection(index > activeImage ? 1 : -1);
+                          setActiveImage(index);
+                        }}
+                        onClickCapture={(event) => event.stopPropagation()}
+                        aria-label={`View image ${index + 1}`}
+                        className={`rounded-full transition-all ${
+                          activeImage === index ? "h-2.5 w-6 bg-[#0B4964]" : "h-2.5 w-2.5 bg-[#0B4964]/28"
+                        }`}
+                      />
+                    ))}
+                    <span className="ml-1 text-[11px] font-semibold text-[#22313f]">
+                      {activeImage + 1}/{service.images.length}
+                    </span>
+                  </div>
+                </div>
+              </>
+            ) : null}
           </motion.div>
 
-          <div className="flex gap-3 overflow-x-auto no-scrollbar">
+          <div ref={thumbnailStripRef} className="hidden gap-3 overflow-x-auto no-scrollbar md:flex md:gap-2.5">
             {service.images.map((image, index) => (
               <button
                 key={`${service.id}-${index}`}
                 type="button"
-                onClick={() => setActiveImage(index)}
-                className={`h-24 w-24 shrink-0 overflow-hidden rounded-2xl border-2 ${
+                onClick={() => {
+                  setImageDirection(index > activeImage ? 1 : -1);
+                  setActiveImage(index);
+                }}
+                data-image-index={index}
+                className={`h-24 w-24 shrink-0 overflow-hidden rounded-2xl border-2 md:h-20 md:w-20 ${
                   activeImage === index ? "border-[#0B4964]" : "border-transparent"
                 }`}
               >
@@ -389,7 +717,7 @@ const ServiceDetail = () => {
           <div className="space-y-3 md:hidden">
             <h3
               ref={mobileTitleRef}
-              className="overflow-hidden text-[1.55rem] font-bold leading-[1.12] tracking-tight text-[#1f2430]"
+              className="overflow-hidden text-[20px] font-semibold leading-[1.15] tracking-tight text-[#1f2430]"
               style={{
                 display: "-webkit-box",
                 WebkitLineClamp: 2,
@@ -404,7 +732,7 @@ const ServiceDetail = () => {
                   <Star size={14} className="fill-current" />
                   <span>{service.rating} ({service.reviews} reviews)</span>
                 </div>
-                <p className="text-xs text-[#98a2b3]">Starting price</p>
+                <p className="text-xs text-[#98a2b3]">After offer price</p>
                 {appliedCoupon ? (
                   <p className="text-xs font-medium text-[#1570ef]">{appliedCoupon.code} applied</p>
                 ) : null}
@@ -453,7 +781,7 @@ const ServiceDetail = () => {
                   <CalendarDays size={16} className="text-[#98a2b3]" />
                 </div>
                 <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
-                  {DATE_OPTIONS.map((option) => (
+                  {dateOptions.map((option) => (
                     <button
                       key={option.date}
                       type="button"
@@ -474,7 +802,7 @@ const ServiceDetail = () => {
               <div>
                 <h3 className="text-base font-semibold text-[#22313f]">Select preferred time</h3>
                 <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
-                  {TIME_GROUPS.map((group) => (
+                  {timeGroups.map((group) => (
                     <button
                       key={group.label}
                       type="button"
@@ -493,7 +821,7 @@ const ServiceDetail = () => {
                   ))}
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-3">
-                  {selectedGroup.slots.map((slot) => (
+                  {(selectedGroup?.slots ?? []).map((slot) => (
                     <button
                       key={slot}
                       type="button"
@@ -538,11 +866,11 @@ const ServiceDetail = () => {
               })}
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-[24px] border border-[#edf0f4] bg-[#fcfdff]">
+            <div className="mt-5 border-t border-[#edf0f4] pt-4">
               <button
                 type="button"
                 onClick={() => setIsDetailsOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+                className="flex w-full items-center justify-between gap-3 text-left"
               >
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#98a2b3]">All details</p>
@@ -556,17 +884,17 @@ const ServiceDetail = () => {
 
               <AnimatePresence initial={false}>
                 {isDetailsOpen ? (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="grid gap-x-8 gap-y-0 border-t border-[#edf0f4] px-5 pb-2 pt-1 md:grid-cols-2">
-                      {activeDetailSection.items.map((item) => (
-                        <div
-                          key={`desktop-description-${activeDetailTab}-${item.label}`}
-                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#edf0f4] py-3"
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-3 grid gap-x-8 gap-y-0 border-t border-[#edf0f4] pb-2 pt-1 md:grid-cols-2">
+                    {activeDetailSection.items.map((item) => (
+                      <div
+                        key={`desktop-description-${activeDetailTab}-${item.label}`}
+                        className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#edf0f4] py-3 last:border-b-0"
                         >
                           <p className="text-sm text-[#667085]">{item.label}</p>
                           <p className="text-sm font-medium text-[#22313f]">{item.value}</p>
@@ -654,21 +982,8 @@ const ServiceDetail = () => {
                   exit={{ height: 0, opacity: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2">
-                    {PRODUCT_HIGHLIGHTS.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <div
-                          key={item.label}
-                          className="flex items-center gap-3 rounded-2xl border border-[#edf0f4] bg-[#fcfdff] px-4 py-4"
-                        >
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eef4f8] text-[#0B4964]">
-                            <Icon size={18} />
-                          </div>
-                          <p className="text-sm font-medium text-[#22313f]">{item.label}</p>
-                        </div>
-                      );
-                    })}
+                  <div className="px-5 pb-5">
+                    <InclusionList items={inclusionItems} />
                   </div>
                 </motion.div>
               ) : null}
@@ -696,11 +1011,11 @@ const ServiceDetail = () => {
               })}
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-[#edf0f4] bg-[#fcfdff]">
+            <div className="mt-5 border-t border-[#edf0f4] pt-4">
               <button
                 type="button"
                 onClick={() => setIsDetailsOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+                className="flex w-full items-center justify-between gap-3 text-left"
               >
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#98a2b3]">All details</p>
@@ -714,17 +1029,17 @@ const ServiceDetail = () => {
 
               <AnimatePresence initial={false}>
                 {isDetailsOpen ? (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="grid gap-x-8 gap-y-0 border-t border-[#edf0f4] px-4 pb-2 pt-1 md:grid-cols-2">
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                    <div className="mt-3 grid gap-x-8 gap-y-0 border-t border-[#edf0f4] pb-2 pt-1 md:grid-cols-2">
                       {activeDetailSection.items.map((item) => (
                         <div
                           key={`${activeDetailTab}-${item.label}`}
-                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#edf0f4] py-3"
+                          className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-[#edf0f4] py-3 last:border-b-0"
                         >
                           <p className="text-sm text-[#667085]">{item.label}</p>
                           <p className="text-sm font-medium text-[#22313f]">{item.value}</p>
@@ -745,8 +1060,8 @@ const ServiceDetail = () => {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              {similarServices.map((item) => (
-                <Link key={item.id} to={`/service/${item.id}`} className="group block">
+              {mobileSimilarServices.map((item) => (
+                <Link key={item.id} to={`/category/${encodeURIComponent(item.category)}/service/${item.id}`} className="group block">
                   <article className="space-y-2">
                     <div className="relative aspect-square overflow-hidden rounded-[22px] bg-[#f8fafc]">
                       <img
@@ -801,101 +1116,143 @@ const ServiceDetail = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="hidden rounded-[32px] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)] ring-1 ring-[#f0e7e2] md:block md:p-8">
-            <div className="hidden flex-wrap items-center gap-2 md:flex">
-              <Badge className="border-none bg-[#FB2965]/10 text-[#FB2965]">{service.category}</Badge>
-              <div className="inline-flex items-center gap-1 rounded-full bg-[#fff7df] px-3 py-1 text-sm font-semibold text-[#5f4b00]">
-                <Star size={14} className="fill-current" />
-                {service.rating} ({service.reviews} reviews)
-              </div>
-              <div className="inline-flex items-center gap-1 rounded-full bg-[#eef7ff] px-3 py-1 text-sm text-[#305a79]">
-                <MapPin size={14} />
-                {service.location}
-              </div>
-            </div>
-
-            <h1 className="mt-4 hidden text-3xl font-bold tracking-tight text-[#0B4964] md:block md:text-4xl">{service.title}</h1>
-
-            <div className="mt-5 hidden items-end gap-3 md:flex">
-              <div className="text-4xl font-bold text-[#FB2965]">{formatCurrency(finalPrice)}</div>
-              {service.price !== finalPrice ? (
-                <div className="pb-1 text-lg text-[#98a2b3] line-through">{formatCurrency(service.price)}</div>
-              ) : service.originalPrice ? (
-                <div className="pb-1 text-lg text-[#98a2b3] line-through">{formatCurrency(service.originalPrice)}</div>
-              ) : null}
-              {discount ? (
-                <div className="rounded-full bg-[#e9fff1] px-3 py-1 text-sm font-semibold text-[#1f9d58]">
-                  Save {discount}%
-                </div>
-              ) : null}
-            </div>
-            {appliedCoupon ? (
-              <div className="mt-3 inline-flex rounded-full bg-[#eef6ff] px-3 py-1 text-sm font-medium text-[#0B4964]">
-                {appliedCoupon.code} applied
-              </div>
-            ) : null}
-          </div>
-
-          <div className="hidden rounded-[32px] border border-[#eadfdb] bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block md:p-8">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#98a2b3]">Booking schedule</p>
-                <h2 className="mt-2 text-2xl font-bold text-[#0B4964]">Choose date and time</h2>
-                <p className="mt-1 text-sm text-[#667085]">
-                  Pick your preferred setup slot. You can update it in the next step if the team suggests a better time.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsScheduleOpen(true)}
-                className="inline-flex items-center gap-1 rounded-full border border-[#eadfdb] bg-white px-4 py-2 text-sm font-medium text-[#0B4964] hover:border-[#0B4964] transition-colors"
-              >
-                Change
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setIsScheduleOpen(true)}
-                className="rounded-3xl border border-[#e5e7eb] bg-[#fcfcfd] p-5 text-left"
-              >
-                <div className="flex items-center gap-3 text-[#0B4964]">
-                  <CalendarDays size={20} />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-[#98a2b3]">Selected date</p>
-                    <p className="mt-1 text-lg font-semibold">{selectedDateLabel}</p>
+          <section className="hidden overflow-hidden rounded-[32px] border border-[#eadfdb] bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block">
+            <div className="space-y-7 px-8 py-8">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-none bg-[#FB2965]/10 text-[#FB2965]">{service.category}</Badge>
+                  <div className="inline-flex items-center gap-1 rounded-full bg-[#fff7df] px-3 py-1 text-[13px] font-semibold text-[#5f4b00]">
+                    <Star size={14} className="fill-current" />
+                    {service.rating} ({service.reviews} reviews)
+                  </div>
+                  <div className="inline-flex items-center gap-1 rounded-full bg-[#eef7ff] px-3 py-1 text-[13px] text-[#305a79]">
+                    <MapPin size={14} />
+                    {service.location}
                   </div>
                 </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsScheduleOpen(true)}
-                className="rounded-3xl border border-[#e5e7eb] bg-[#fcfcfd] p-5 text-left"
-              >
-                <div className="flex items-center gap-3 text-[#0B4964]">
-                  <Clock3 size={20} />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-[#98a2b3]">Selected time</p>
-                    <p className="mt-1 text-lg font-semibold">{selectedTime}</p>
+
+                <div className="space-y-4">
+                  <h1 className="max-w-3xl text-[2.2rem] font-bold leading-[1.08] tracking-[-0.03em] text-[#0B4964]">
+                    {service.title}
+                  </h1>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="text-[2.5rem] font-bold leading-none text-[#FB2965]">{formatCurrency(finalPrice)}</div>
+                    {service.price !== finalPrice ? (
+                      <div className="pb-1 text-[15px] text-[#98a2b3] line-through">{formatCurrency(service.price)}</div>
+                    ) : service.originalPrice ? (
+                      <div className="pb-1 text-[15px] text-[#98a2b3] line-through">{formatCurrency(service.originalPrice)}</div>
+                    ) : null}
+                    {discount ? (
+                      <div className="rounded-full bg-[#e9fff1] px-3 py-1 text-[13px] font-semibold text-[#1f9d58]">
+                        Save {discount}%
+                      </div>
+                    ) : null}
+                    {appliedCoupon ? (
+                      <div className="rounded-full bg-[#eef6ff] px-3 py-1 text-[13px] font-medium text-[#0B4964]">
+                        {appliedCoupon.code} applied
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-              </button>
+              </div>
+
+              <div className="border-t border-[#edf0f4] pt-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#98a2b3]">Booking schedule</p>
+                    <h2 className="mt-0.5 text-[1.1rem] font-bold leading-tight text-[#0B4964]">Choose date and time</h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsScheduleOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-[#eadfdb] bg-white px-4 py-2 text-[13px] font-medium text-[#0B4964] transition-colors hover:border-[#0B4964]"
+                  >
+                    Change
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-0 overflow-hidden rounded-[20px] border border-[#edf0f4] md:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsScheduleOpen(true)}
+                    className="border-b border-[#edf0f4] px-4 py-3.5 text-left transition-colors hover:bg-[#fafcff] md:border-b-0 md:border-r"
+                  >
+                    <div className="flex items-center gap-3 text-[#0B4964]">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#eef4f8]">
+                        <CalendarDays size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-[#98a2b3]">Selected date</p>
+                        <p className="mt-0.5 text-[1.1rem] font-semibold leading-none">{selectedDateLabel}</p>
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsScheduleOpen(true)}
+                    className="px-4 py-3.5 text-left transition-colors hover:bg-[#fafcff]"
+                  >
+                    <div className="flex items-center gap-3 text-[#0B4964]">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#eef4f8]">
+                        <Clock3 size={16} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.16em] text-[#98a2b3]">Selected time</p>
+                        <p className="mt-0.5 text-[1.1rem] font-semibold leading-none">{selectedTime}</p>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="mt-3 rounded-[16px] border border-[#edf0f4] bg-[#fafcff] px-4 py-3 text-[12px] leading-6 text-[#526070]">
+                  Next step after booking: confirm address, event notes, and final installation slot with the team.
+                </div>
+
+                {/* Need it fast */}
+                <button
+                  type="button"
+                  onClick={() => { setFastDone(false); setFastDate(selectedDate); setFastTime(selectedTime); setFastPhone(profile?.phone_number || ""); setNeedFastOpen(true); }}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-[16px] bg-gradient-to-r from-[#ff1744] to-[#FB2965] py-3 text-[13px] font-bold text-white shadow-[0_4px_18px_rgba(251,41,101,0.35)] transition-all hover:shadow-[0_6px_24px_rgba(251,41,101,0.5)] hover:brightness-105 active:scale-[0.98]"
+                >
+                  <Zap size={14} className="fill-white" />
+                  Need it fast? Request priority slot
+                </button>
+              </div>
             </div>
 
-            <div className="mt-6 rounded-3xl bg-[#f8fafc] p-4 text-sm text-[#526070]">
-              Next step after booking: confirm address, event notes, and final installation slot with the team.
+            <div className="border-t border-[#edf0f4] px-8 py-5">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = toggleWishlist(service.id);
+                    setWishlistIds(next);
+                    toast.success(next.includes(service.id) ? "Added to wishlist" : "Removed from wishlist");
+                  }}
+                  className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border transition ${
+                    isWishlisted
+                      ? "border-[#FB2965] bg-[#fff0f4] text-[#FB2965]"
+                      : "border-[#e4e7ec] bg-white text-[#667085]"
+                  }`}
+                >
+                  <Heart size={20} fill={isWishlisted ? "currentColor" : "none"} />
+                </button>
+                <Button
+                  variant="outline"
+                  className="h-14 flex-1 rounded-2xl border-[#0B4964] text-sm font-semibold text-[#0B4964]"
+                  onClick={() => { handleReserve(); navigate("/cart"); }}
+                >
+                  Reserve
+                </Button>
+                <Button
+                  className="h-14 flex-1 rounded-2xl bg-[#FB2965] text-sm font-semibold hover:bg-[#e02456]"
+                  onClick={handleBookNow}
+                >
+                  Book Now
+                </Button>
+              </div>
             </div>
-          </div>
-
-          <div className="hidden gap-4 md:flex">
-            <Button variant="outline" className="h-14 flex-1 text-base font-semibold" onClick={handleReserve}>
-              Reserve
-            </Button>
-            <Button className="h-14 flex-1 bg-[#0B4964] text-base font-semibold hover:bg-[#08384e]" onClick={handleBookNow}>
-              Book Now
-            </Button>
-          </div>
+          </section>
 
           <section className="hidden overflow-hidden rounded-[32px] border border-[#eadfdb] bg-white shadow-[0_16px_40px_rgba(15,23,42,0.05)] md:block">
             <button
@@ -920,21 +1277,8 @@ const ServiceDetail = () => {
                   exit={{ height: 0, opacity: 0 }}
                   className="overflow-hidden"
                 >
-                  <div className="grid gap-3 px-6 pb-6 md:px-8 md:pb-8">
-                    {PRODUCT_HIGHLIGHTS.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <div
-                          key={item.label}
-                          className="flex items-center gap-3 rounded-2xl border border-[#edf0f4] bg-[#fcfdff] px-4 py-4"
-                        >
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eef4f8] text-[#0B4964]">
-                            <Icon size={18} />
-                          </div>
-                          <p className="text-sm font-medium text-[#22313f]">{item.label}</p>
-                        </div>
-                      );
-                    })}
+                  <div className="px-6 pb-6 md:px-8 md:pb-8">
+                    <InclusionList items={inclusionItems} />
                   </div>
                 </motion.div>
               ) : null}
@@ -990,9 +1334,9 @@ const ServiceDetail = () => {
             <h3 className="text-xl font-bold text-[#22313f]">Similar decorations</h3>
           </div>
         </div>
-        <div className="grid grid-cols-4 gap-4">
-          {similarServices.map((item) => (
-            <Link key={`desktop-${item.id}`} to={`/service/${item.id}`} className="group block">
+        <div className="grid grid-cols-4 gap-5">
+          {desktopSimilarServices.map((item) => (
+            <Link key={`desktop-${item.id}`} to={`/category/${encodeURIComponent(item.category)}/service/${item.id}`} className="group block">
               <article className="space-y-2">
                 <div className="relative aspect-square overflow-hidden rounded-[22px] bg-[#f8fafc]">
                   <img
@@ -1084,16 +1428,248 @@ const ServiceDetail = () => {
         </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#eadfdb] bg-white/95 p-4 backdrop-blur md:hidden">
-        <div className="mx-auto flex max-w-md gap-3">
-          <Button variant="outline" className="h-14 flex-1 text-base font-semibold" onClick={handleReserve}>
+      <AnimatePresence>
+        {isImageLightboxOpen ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[120] bg-[#05070bcc]/95 backdrop-blur-sm"
+            onClick={closeImageLightbox}
+          >
+            <div className="flex h-full w-full items-center justify-center p-4 md:p-8">
+              <div
+                className="relative flex h-full w-full max-w-6xl items-center justify-center"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={closeImageLightbox}
+                  className="absolute right-0 top-0 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white/12 text-white backdrop-blur-sm transition hover:bg-white/18"
+                  aria-label="Close full screen image"
+                >
+                  <X size={20} />
+                </button>
+
+                {service.images.length > 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handlePrevImage}
+                      className="absolute left-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/12 text-white backdrop-blur-sm transition hover:bg-white/18 md:flex"
+                      aria-label="Previous image"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleNextImage}
+                      className="absolute right-0 top-1/2 z-20 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/12 text-white backdrop-blur-sm transition hover:bg-white/18 md:flex"
+                      aria-label="Next image"
+                    >
+                      <ChevronLeft size={20} className="rotate-180" />
+                    </button>
+                  </>
+                ) : null}
+
+                <motion.div
+                  key={`lightbox-${service.id}-${activeImage}`}
+                  initial={{ opacity: 0, x: imageDirection >= 0 ? 42 : -42 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: imageDirection >= 0 ? -42 : 42 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                  className="flex h-full w-full items-center justify-center"
+                >
+                  <img
+                    src={service.images[activeImage] ?? service.images[0]}
+                    alt={service.title}
+                    className="max-h-[84vh] w-auto max-w-full rounded-[28px] object-contain shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
+                    referrerPolicy="no-referrer"
+                  />
+                </motion.div>
+
+                {service.images.length > 1 ? (
+                  <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/10 px-3 py-2 backdrop-blur-sm">
+                    {service.images.map((_, index) => (
+                      <button
+                        key={`lightbox-image-dot-${index}`}
+                        type="button"
+                        onClick={() => {
+                          setImageDirection(index > activeImage ? 1 : -1);
+                          setActiveImage(index);
+                        }}
+                        aria-label={`View image ${index + 1}`}
+                        className={`h-2.5 rounded-full transition-all ${
+                          activeImage === index ? "w-5 bg-white" : "w-2.5 bg-white/40"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#eadfdb] bg-white/95 px-4 py-3 pb-4 backdrop-blur md:hidden">
+        <button
+          type="button"
+          onClick={() => { setFastDone(false); setFastDate(selectedDate); setFastTime(selectedTime); setFastPhone(profile?.phone_number || ""); setNeedFastOpen(true); }}
+          className="mb-2 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#ff1744] to-[#FB2965] py-2.5 text-[13px] font-bold text-white shadow-[0_4px_14px_rgba(251,41,101,0.3)] active:scale-[0.98]"
+        >
+          <Zap size={13} className="fill-white" />
+          Need it fast? Request priority slot
+        </button>
+        <div className="mx-auto flex max-w-md items-center gap-2">
+          {/* Wishlist */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = toggleWishlist(service.id);
+              setWishlistIds(next);
+              toast.success(next.includes(service.id) ? "Added to wishlist" : "Removed from wishlist");
+            }}
+            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border transition ${
+              isWishlisted
+                ? "border-[#FB2965] bg-[#fff0f4] text-[#FB2965]"
+                : "border-[#e4e7ec] bg-white text-[#667085]"
+            }`}
+          >
+            <Heart size={20} fill={isWishlisted ? "currentColor" : "none"} />
+          </button>
+          {/* Reserve → cart */}
+          <Button
+            variant="outline"
+            className="h-14 flex-1 rounded-2xl border-[#0B4964] text-sm font-semibold text-[#0B4964]"
+            onClick={() => {
+              handleReserve();
+              navigate("/cart");
+            }}
+          >
             Reserve
           </Button>
-          <Button className="h-14 flex-1 bg-[#0B4964] text-base font-semibold hover:bg-[#08384e]" onClick={handleBookNow}>
+          {/* Book Now → checkout */}
+          <Button
+            className="h-14 flex-1 rounded-2xl bg-[#FB2965] text-sm font-semibold hover:bg-[#e02456]"
+            onClick={handleBookNow}
+          >
             Book Now
           </Button>
         </div>
       </div>
+
+      {/* Need it fast modal */}
+      <AnimatePresence>
+        {needFastOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-[2px]"
+              onClick={() => setNeedFastOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 40 }}
+              transition={{ type: "spring", stiffness: 300, damping: 28 }}
+              className="fixed inset-x-0 bottom-0 z-[90] rounded-t-[28px] bg-white p-5 pb-10 shadow-2xl md:inset-auto md:left-1/2 md:top-1/2 md:w-[460px] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[28px] md:pb-6"
+            >
+              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#e4e7ec] md:hidden" />
+
+              <div className="flex items-start justify-between gap-3 mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#fff0f4]">
+                    <Zap size={18} className="fill-[#FB2965] text-[#FB2965]" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-[#0B4964]">Need it fast?</h2>
+                    <p className="text-xs text-[#667085]">Tell us your preferred slot — we'll confirm priority</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setNeedFastOpen(false)} className="rounded-full p-1.5 text-[#98a2b3] hover:bg-[#f2f4f7]">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {fastDone ? (
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#e9fff1]">
+                    <Check size={26} className="text-[#1f9d58]" />
+                  </div>
+                  <p className="text-base font-bold text-[#0B4964]">Request received!</p>
+                  <p className="text-sm text-[#667085]">Our team will reach out to confirm your priority slot as soon as possible.</p>
+                  <button
+                    type="button"
+                    onClick={() => setNeedFastOpen(false)}
+                    className="mt-2 rounded-full bg-[#0B4964] px-8 py-2.5 text-sm font-semibold text-white"
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#98a2b3] mb-1">
+                    {service.title}
+                  </div>
+
+                  {/* Date + Time */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-[#344054]">Preferred date</label>
+                      <input
+                        type="date"
+                        value={fastDate}
+                        min={new Date().toISOString().split("T")[0]}
+                        onChange={e => setFastDate(e.target.value)}
+                        className="w-full rounded-2xl border border-[#eadfdb] bg-[#fafcff] px-3 py-2.5 text-sm text-[#22313f] focus:outline-none focus:ring-2 focus:ring-[#0B4964]/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-[#344054]">Preferred time</label>
+                      <input
+                        type="time"
+                        value={fastTime.includes(":") && !fastTime.includes("AM") && !fastTime.includes("PM") ? fastTime : "10:00"}
+                        onChange={e => setFastTime(e.target.value)}
+                        className="w-full rounded-2xl border border-[#eadfdb] bg-[#fafcff] px-3 py-2.5 text-sm text-[#22313f] focus:outline-none focus:ring-2 focus:ring-[#0B4964]/20"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-[#344054]">Your phone number</label>
+                    <input
+                      type="tel"
+                      placeholder="+91 XXXXX XXXXX"
+                      value={fastPhone}
+                      onChange={e => setFastPhone(e.target.value)}
+                      className="w-full rounded-2xl border border-[#eadfdb] bg-[#fafcff] px-3 py-2.5 text-sm text-[#22313f] placeholder:text-[#98a2b3] focus:outline-none focus:ring-2 focus:ring-[#0B4964]/20"
+                    />
+                  </div>
+
+                  <div className="rounded-2xl bg-[#fff5f8] px-4 py-3 text-xs text-[#FB2965]">
+                    <span className="font-semibold">How it works:</span> We'll call or WhatsApp you within 30 minutes to confirm availability for your requested slot.
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={fastSubmitting}
+                    onClick={handleNeedFast}
+                    className="w-full rounded-2xl bg-[#FB2965] py-3.5 text-sm font-bold text-white transition-colors hover:bg-[#e02456] disabled:opacity-60"
+                  >
+                    {fastSubmitting ? "Sending request…" : "Request Priority Slot"}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isScheduleOpen ? (
@@ -1136,7 +1712,7 @@ const ServiceDetail = () => {
                       <CalendarDays size={16} className="text-[#667085]" />
                     </div>
                     <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
-                      {DATE_OPTIONS.map((option) => (
+                      {dateOptions.map((option) => (
                         <button
                           key={option.date}
                           type="button"
@@ -1157,7 +1733,7 @@ const ServiceDetail = () => {
                   <div>
                     <h3 className="text-sm font-semibold text-[#344054]">Select preferred time</h3>
                     <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
-                      {TIME_GROUPS.map((group) => (
+                      {timeGroups.map((group) => (
                         <button
                           key={group.label}
                           type="button"
@@ -1176,7 +1752,7 @@ const ServiceDetail = () => {
                       ))}
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-3">
-                      {selectedGroup.slots.map((slot) => (
+                      {(selectedGroup?.slots ?? []).map((slot) => (
                         <button
                           key={slot}
                           type="button"

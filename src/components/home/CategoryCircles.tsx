@@ -13,6 +13,41 @@ interface Category {
 const PLACEHOLDER_IMAGE =
   "https://images.unsplash.com/photo-1530103862676-fa8c9d34bb34?w=200&h=200&fit=crop";
 
+const CategoryCard = ({ cat, index }: { cat: Category; index: number }) => {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      viewport={{ once: true }}
+      transition={{ delay: index * 0.04, duration: 0.25 }}
+      className="shrink-0 md:shrink group cursor-pointer w-24 md:w-full"
+    >
+      <Link to={`/category/${cat.name}`}>
+        <div className="relative w-24 h-28 md:w-full md:h-44 rounded-2xl md:rounded-3xl overflow-hidden shadow-sm border border-[#edf0f4] group-hover:border-[#FB2965] transition-all duration-300">
+          {!imgLoaded && (
+            <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
+          )}
+          <img
+            src={cat.image_url || PLACEHOLDER_IMAGE}
+            alt={cat.name}
+            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onLoad={() => setImgLoaded(true)}
+          />
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6 md:px-3 md:pb-3 md:pt-10">
+            <span className="text-[10px] md:text-sm font-bold text-white text-center block leading-tight">
+              {cat.name}
+            </span>
+          </div>
+        </div>
+      </Link>
+    </motion.div>
+  );
+};
+
 export const CategoryCircles = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,9 +72,9 @@ export const CategoryCircles = () => {
   if (loading) {
     return (
       <section className="py-1">
-        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pt-2 pb-2">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pt-2 pb-2 md:grid md:grid-cols-6 md:overflow-visible">
           {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="w-24 h-28 md:w-28 md:h-32 shrink-0 rounded-2xl bg-[#f0f2f5] animate-pulse" />
+            <div key={index} className="w-24 h-28 md:w-full md:h-44 shrink-0 rounded-2xl md:rounded-3xl bg-[#f0f2f5] animate-pulse" />
           ))}
         </div>
       </section>
@@ -50,31 +85,9 @@ export const CategoryCircles = () => {
 
   return (
     <section className="py-1">
-      <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pt-2 pb-2">
+      <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pt-2 pb-2 md:grid md:grid-cols-6 md:gap-4 md:overflow-visible">
         {categories.map((cat, index) => (
-          <motion.div
-            key={cat.id}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: index * 0.05 }}
-            className="shrink-0 group cursor-pointer"
-          >
-            <Link to={`/category/${cat.name}`}>
-              <div className="relative w-24 h-28 md:w-28 md:h-32 rounded-2xl overflow-hidden shadow-sm border border-[#edf0f4] group-hover:border-[#FB2965] transition-all duration-300">
-                <img
-                  src={cat.image_url || PLACEHOLDER_IMAGE}
-                  alt={cat.name}
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-1.5 pb-1.5 pt-4">
-                  <span className="text-[10px] md:text-xs font-bold text-white text-center block leading-tight">
-                    {cat.name}
-                  </span>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
+          <CategoryCard key={cat.id} cat={cat} index={index} />
         ))}
       </div>
     </section>

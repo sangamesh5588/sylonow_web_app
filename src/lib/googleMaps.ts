@@ -40,8 +40,15 @@ export const parseAddressComponents = (components: any[] = []) => {
   const find = (type: string) =>
     components.find((component) => component.types?.includes(type))?.long_name || "";
 
+  const houseNumber =
+    find("subpremise") ||
+    find("premise") ||
+    find("street_number") ||
+    "";
+
   return {
     city: find("locality") || find("administrative_area_level_2") || find("administrative_area_level_1"),
     pincode: find("postal_code"),
+    houseNumber,
   };
 };

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import SEO from "../components/SEO";
 import { AnimatePresence, motion } from "motion/react";
 import {
   MapPin,
+  Navigation,
   X,
 } from "lucide-react";
 import { Button } from "../components/ui";
@@ -10,6 +12,7 @@ import { ServiceCard } from "../components/ServiceCard";
 import { Category, Service } from "../types";
 import { CategoryTopSection } from "../components/category/CategoryTopSection";
 import { fetchAllServices, fetchCategories } from "../lib/services";
+import { isNearMeActive, setNearMeActive, readUserCoords, distanceKm } from "../lib/citySelection";
 
 const PRICE_OPTIONS = [
 
@@ -29,8 +32,6 @@ const PRICE_SLIDER_OPTIONS = [
 ] as const;
 
 const SORT_OPTIONS = [
-
-  { label: "Popularity", value: "popular" },
 
   { label: "Price: low to high", value: "price-asc" },
 
@@ -98,7 +99,7 @@ const CategoryPage = () => {
 
   const initialPrice = (searchParams.get("price") as PriceFilter | null) || "all";
 
-  const initialSort = (searchParams.get("sort") as SortFilter | null) || "popular";
+  const initialSort = (searchParams.get("sort") as SortFilter | null) || "price-asc";
 
 
 
@@ -120,8 +121,12 @@ const CategoryPage = () => {
 
   const [draftPrice, setDraftPrice] = useState<PriceFilter>(initialPrice);
 
+  const [draftNearMe, setDraftNearMe] = useState(() => isNearMeActive() && searchParams.get("nearMe") === "1");
+
   const stickySentinelRef = useRef<HTMLDivElement | null>(null);
   const [isTopSectionSticky, setIsTopSectionSticky] = useState(false);
+  const [nearMe, setNearMe] = useState(() => isNearMeActive() && searchParams.get("nearMe") === "1");
+  const userCoords = useMemo(() => readUserCoords(), []);
 
 
 
@@ -145,6 +150,13 @@ const CategoryPage = () => {
 
   }, [initialCategory, initialLocation, initialPrice, initialSearch, initialSort]);
 
+  // Sync nearMe from URL
+  useEffect(() => {
+    const active = isNearMeActive() && searchParams.get("nearMe") === "1";
+    setNearMe(active);
+    setDraftNearMe(active);
+  }, [searchParams]);
+
 
 
   useEffect(() => {
@@ -166,33 +178,36 @@ const CategoryPage = () => {
 
     const normalizedQuery = searchValue.trim().toLowerCase();
 
-
-
     const results = allServices.filter((service: Service) => {
 
       const matchesCategory = service.category === selectedCategory;
 
       const matchesSearch = normalizedQuery
-
         ? service.title.toLowerCase().includes(normalizedQuery) ||
-
           service.description.toLowerCase().includes(normalizedQuery) ||
-
           service.tags?.some((tag) => tag.toLowerCase().includes(normalizedQuery))
-
         : true;
 
       const matchesLocation = selectedLocation === "all" ? true : service.location === selectedLocation;
 
       const matchesPrice = matchesPriceRange(service.price, selectedPrice);
 
-
-
       return matchesCategory && matchesSearch && matchesLocation && matchesPrice;
 
     });
 
-
+    if (nearMe && userCoords) {
+      return results
+        .map((s) => ({
+          service: s,
+          dist:
+            s.latitude != null && s.longitude != null
+              ? distanceKm(userCoords.latitude, userCoords.longitude, s.latitude, s.longitude)
+              : Infinity,
+        }))
+        .sort((a, b) => a.dist - b.dist)
+        .map(({ service }) => service);
+    }
 
     return results.sort((a, b) => {
 
@@ -208,7 +223,7 @@ const CategoryPage = () => {
 
     });
 
-  }, [allServices, searchValue, selectedCategory, selectedLocation, selectedPrice, selectedSort]);
+  }, [allServices, searchValue, selectedCategory, selectedLocation, selectedPrice, selectedSort, nearMe, userCoords]);
 
 
 
@@ -220,7 +235,7 @@ const CategoryPage = () => {
 
     Object.entries(updates).forEach(([key, value]) => {
 
-      if (!value || value === "all" || (key === "sort" && value === "popular")) {
+      if (!value || value === "all") {
 
         nextParams.delete(key);
 
@@ -256,7 +271,7 @@ const CategoryPage = () => {
 
       ...(selectedPrice !== "all" ? { price: selectedPrice } : {}),
 
-      ...(selectedSort !== "popular" ? { sort: selectedSort } : {}),
+      ...(selectedSort ? { sort: selectedSort } : {}),
 
     }).toString()}`, { replace: true });
 
@@ -289,7 +304,7 @@ const CategoryPage = () => {
       ...(search.trim() ? { search: search.trim() } : {}),
       ...(location !== "all" ? { location } : {}),
       ...(price !== "all" ? { price } : {}),
-      ...(sort !== "popular" ? { sort } : {}),
+      ...(sort ? { sort } : {}),
     });
 
     const queryString = nextParams.toString();
@@ -300,20 +315,20 @@ const CategoryPage = () => {
 
   const applyFilters = () => {
     setSelectedCategory(draftCategory);
-    setSelectedLocation(draftLocation);
+    setSelectedLocation(draftNearMe ? "all" : draftLocation);
     setSelectedPrice(draftPrice);
+    setNearMe(draftNearMe);
     setIsFilterOpen(false);
 
-    const nextRoute = buildCategoryRoute({
-      category: draftCategory,
-      search: searchValue,
-      location: draftLocation,
-      price: draftPrice,
-      sort: selectedSort,
+    const nextParams = new URLSearchParams({
+      ...(searchValue.trim() ? { search: searchValue.trim() } : {}),
+      ...(!draftNearMe && draftLocation !== "all" ? { location: draftLocation } : {}),
+      ...(draftPrice !== "all" ? { price: draftPrice } : {}),
+      ...(selectedSort ? { sort: selectedSort } : {}),
+      ...(draftNearMe ? { nearMe: "1" } : {}),
     });
 
-    navigate(nextRoute, { replace: true });
-
+    navigate(`/category/${encodeURIComponent(draftCategory)}${nextParams.toString() ? `?${nextParams.toString()}` : ""}`, { replace: true });
   };
 
 
@@ -324,8 +339,10 @@ const CategoryPage = () => {
     setDraftCategory(nextCategory);
     setDraftLocation("all");
     setDraftPrice("all");
+    setDraftNearMe(false);
     setSelectedLocation("all");
     setSelectedPrice("all");
+    setNearMe(false);
     setIsFilterOpen(false);
 
     const nextRoute = buildCategoryRoute({
@@ -337,24 +354,44 @@ const CategoryPage = () => {
     });
 
     navigate(nextRoute, { replace: true });
-
   };
 
 
 
-  const activeFilterCount = Number(selectedLocation !== "all") + Number(selectedPrice !== "all");
+  const handleNearMeToggle = () => {
+    const next = !nearMe;
+    setNearMe(next);
+    setDraftNearMe(next);
+    setNearMeActive(next);
+    const nextParams = new URLSearchParams(searchParams);
+    if (next) {
+      nextParams.set("nearMe", "1");
+    } else {
+      nextParams.delete("nearMe");
+    }
+    navigate(`/category/${encodeURIComponent(selectedCategory)}?${nextParams.toString()}`, { replace: true });
+  };
+
+  const activeFilterCount = Number(nearMe || selectedLocation !== "all") + Number(selectedPrice !== "all");
 
 
 
   return (
 
     <div className="space-y-6 pb-10">
+      <SEO
+        title={`${selectedCategory} Decoration in Bangalore`}
+        description={`Book premium ${selectedCategory} decoration packages in Bangalore. ${filteredServices.length > 0 ? `${filteredServices.length} curated options` : "Handpicked setups"} with professional setup included. Same-day service available.`}
+        canonical={`/category/${encodeURIComponent(selectedCategory)}`}
+      />
 
       <div ref={stickySentinelRef} className="h-px" />
       <CategoryTopSection
         activeFilterCount={activeFilterCount}
         isSticky={isTopSectionSticky}
+        nearMe={nearMe}
         onFilterOpen={() => setIsFilterOpen(true)}
+        onNearMeToggle={handleNearMeToggle}
         onSortChange={handleSortChange}
         selectedSort={selectedSort}
         sortOptions={SORT_OPTIONS}
@@ -362,33 +399,54 @@ const CategoryPage = () => {
 
 
 
-      <div className="flex items-center justify-between gap-3">
-
-        <div>
-
-          <p className="text-sm font-medium text-[#fb2965]">{filteredServices.length} curated options</p>
-
-          <h1 className="text-2xl font-bold tracking-tight text-[#0B4964]">{selectedCategory} setups near you</h1>
-
+      {loading ? (
+        <div className="animate-pulse space-y-2">
+          <div className="h-4 w-28 rounded-full bg-[#e8eaed]" />
+          <div className="h-7 w-64 rounded-full bg-[#e8eaed]" />
         </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
 
-        {selectedLocation !== "all" ? (
+          <div>
 
-          <div className="hidden items-center gap-2 rounded-full bg-white px-4 py-2 text-sm text-[#0B4964] shadow-sm ring-1 ring-[#eadfdb] md:flex">
+            <p className="text-sm font-medium text-[#fb2965]">{filteredServices.length} curated options</p>
 
-            <MapPin size={14} />
-
-            {selectedLocation}
+            <h1 className="text-2xl font-bold tracking-tight text-[#0B4964]">{selectedCategory} setups near you</h1>
 
           </div>
 
-        ) : null}
+          <div className="hidden md:flex items-center gap-2">
+            {nearMe ? (
+              <div className="flex items-center gap-2 rounded-full bg-[#fff0f5] px-4 py-2 text-sm text-[#FB2965] shadow-sm ring-1 ring-[#FB2965]/20">
+                <Navigation size={14} />
+                Near Me
+              </div>
+            ) : selectedLocation !== "all" ? (
+              <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm text-[#0B4964] shadow-sm ring-1 ring-[#eadfdb]">
+                <MapPin size={14} />
+                {selectedLocation}
+              </div>
+            ) : null}
+          </div>
 
-      </div>
+        </div>
+      )}
 
 
 
-      {filteredServices.length > 0 ? (
+      {loading ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="animate-pulse rounded-[24px] overflow-hidden bg-[#f4f6f8]">
+              <div className="aspect-[4/3] bg-[#e8eaed]" />
+              <div className="p-4 space-y-2">
+                <div className="h-4 bg-[#e8eaed] rounded-full w-3/4" />
+                <div className="h-3 bg-[#e8eaed] rounded-full w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : filteredServices.length > 0 ? (
 
         <motion.div layout className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
 
@@ -400,11 +458,11 @@ const CategoryPage = () => {
 
               layout
 
-              initial={{ opacity: 0, y: 18 }}
+              initial={{ opacity: 0 }}
 
-              animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 1 }}
 
-              transition={{ duration: 0.28, delay: index * 0.04 }}
+              transition={{ duration: 0.25, delay: index * 0.03 }}
 
             >
 
@@ -420,9 +478,11 @@ const CategoryPage = () => {
 
         <motion.div
 
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0 }}
 
-          animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: 1 }}
+
+          transition={{ duration: 0.3 }}
 
           className="rounded-[28px] bg-white p-10 text-center shadow-sm ring-1 ring-[#eadfdb]"
 
@@ -547,14 +607,27 @@ const CategoryPage = () => {
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
 
                     <button
+                      type="button"
+                      onClick={() => { setDraftNearMe(true); setDraftLocation("all"); }}
+                      className={`flex items-center justify-center gap-1.5 rounded-2xl border px-4 py-3 text-sm transition ${
+                        draftNearMe
+                          ? "border-[#FB2965] bg-[#fff0f5] text-[#FB2965]"
+                          : "border-[#e4e7ec] bg-white text-[#0B4964]"
+                      }`}
+                    >
+                      <Navigation size={14} />
+                      Near Me
+                    </button>
+
+                    <button
 
                       type="button"
 
-                      onClick={() => setDraftLocation("all")}
+                      onClick={() => { setDraftLocation("all"); setDraftNearMe(false); }}
 
                         className={`rounded-2xl border px-4 py-3 text-sm transition ${
 
-                          draftLocation === "all"
+                          !draftNearMe && draftLocation === "all"
 
                           ? "border-[#0B4964] bg-[#f5fbff] text-[#0B4964]"
 
@@ -576,11 +649,11 @@ const CategoryPage = () => {
 
                         type="button"
 
-                        onClick={() => setDraftLocation(location)}
+                        onClick={() => { setDraftLocation(location); setDraftNearMe(false); }}
 
                         className={`rounded-2xl border px-4 py-3 text-sm transition ${
 
-                          draftLocation === location
+                          !draftNearMe && draftLocation === location
 
                             ? "border-[#0B4964] bg-[#f5fbff] text-[#0B4964]"
 
@@ -695,4 +768,3 @@ const CategoryPage = () => {
 
 
 export default CategoryPage;
-

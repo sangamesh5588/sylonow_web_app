@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { readWishlist, toggleWishlist } from "../lib/booking";
 import { formatCurrency } from "../lib/utils";
-import { SERVICES } from "../services/mockData";
+import { fetchAllServices } from "../lib/services";
 import { Service } from "../types";
 import { Button, Card } from "../components/ui";
 
@@ -21,6 +21,7 @@ const Wishlist = () => {
   const navigate = useNavigate();
   const { isAuthenticated, setShowLoginModal } = useAuth();
   const [wishlistServices, setWishlistServices] = useState<Service[]>([]);
+  const [allServices, setAllServices] = useState<Service[]>([]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -28,21 +29,18 @@ const Wishlist = () => {
       navigate("/profile");
       return;
     }
-
-    loadWishlist();
+    fetchAllServices().then((all) => {
+      setAllServices(all);
+      const ids = readWishlist();
+      setWishlistServices(all.filter((s) => ids.includes(s.id)));
+    });
   }, [isAuthenticated, navigate, setShowLoginModal]);
-
-  const loadWishlist = () => {
-    const ids = readWishlist();
-    const services = SERVICES.filter((service) => ids.includes(service.id));
-    setWishlistServices(services);
-  };
 
   const handleRemove = (serviceId: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const updated = toggleWishlist(serviceId);
-    setWishlistServices(SERVICES.filter((service) => updated.includes(service.id)));
+    setWishlistServices(allServices.filter((s) => updated.includes(s.id)));
     toast.success("Removed from wishlist");
   };
 
@@ -94,13 +92,13 @@ const Wishlist = () => {
               <Card className="overflow-hidden rounded-[28px] border border-[#f0e4dd] bg-[linear-gradient(180deg,#fffdfb_0%,#fff7f2_100%)] p-0 shadow-[0_20px_45px_rgba(17,24,39,0.08)]">
                 <div
                   className="cursor-pointer"
-                  onClick={() => navigate(`/service/${service.id}`)}
+                  onClick={() => navigate(`/category/${encodeURIComponent(service.category)}/service/${service.id}`)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      navigate(`/service/${service.id}`);
+                      navigate(`/category/${encodeURIComponent(service.category)}/service/${service.id}`);
                     }
                   }}
                 >
@@ -171,7 +169,7 @@ const Wishlist = () => {
                         className="h-11 rounded-full border border-[#f0d7de] bg-white px-4 text-xs font-semibold uppercase tracking-[0.14em] text-[#0B4964] hover:bg-[#fff7fa]"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/service/${service.id}`);
+                          navigate(`/category/${encodeURIComponent(service.category)}/service/${service.id}`);
                         }}
                       >
                         <ShoppingBag size={14} />

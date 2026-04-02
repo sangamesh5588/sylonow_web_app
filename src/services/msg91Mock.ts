@@ -4,7 +4,7 @@
  */
 
 // Development OTP - will work for testing
-const DEV_OTP = '123456';
+const DEV_OTP = '1234';
 
 export const sendOTP = async (phoneNumber: string): Promise<{ success: boolean; message: string }> => {
   console.log('🧪 DEV MODE: Sending mock OTP to', phoneNumber);

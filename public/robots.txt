@@ -1,0 +1,16 @@
+# Sylonow Robots.txt
+# Bangalore's #1 Birthday Decoration & Surprise Planning Service
+
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /cart
+Disallow: /checkout
+Disallow: /profile
+Disallow: /orders
+Disallow: /addresses
+Disallow: /wishlist
+Disallow: /coupons
+
+Sitemap: https://sylonow.com/sitemap.xml

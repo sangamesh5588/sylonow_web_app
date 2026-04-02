@@ -1,9 +1,9 @@
 import { ChevronLeft, Percent, TicketPercent } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Card, Button } from "../components/ui";
-import { CHECKOUT_COUPONS, findCheckoutCoupon, isCouponAvailableForAmount } from "../lib/coupons";
+import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount } from "../lib/coupons";
 import { formatCurrency } from "../lib/utils";
 
 const Coupons = () => {
@@ -12,14 +12,17 @@ const Coupons = () => {
   const amount = Number(searchParams.get("amount") ?? 0);
   const returnTo = searchParams.get("returnTo") ?? "/checkout";
   const appliedCouponCode = searchParams.get("coupon");
-  const appliedCoupon = useMemo(() => findCheckoutCoupon(appliedCouponCode), [appliedCouponCode]);
+
+  const [coupons, setCoupons] = useState<CheckoutCoupon[]>([]);
+  const appliedCoupon = findCoupon(coupons, appliedCouponCode);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    fetchActiveCoupons().then(setCoupons);
   }, []);
 
   const handleApply = (code: string) => {
-    const nextCoupon = findCheckoutCoupon(code);
+    const nextCoupon = findCoupon(coupons, code);
     if (!nextCoupon) return;
     if (!isCouponAvailableForAmount(nextCoupon, amount)) {
       toast.error(`Coupon valid on orders above ${formatCurrency(nextCoupon.minOrderAmount)}`);
@@ -59,10 +62,10 @@ const Coupons = () => {
       </Card>
 
       <div className="space-y-3">
-        {CHECKOUT_COUPONS.map((coupon) => {
+        {coupons.map((coupon) => {
           const isApplied = appliedCoupon?.code === coupon.code;
           const isAvailable = isCouponAvailableForAmount(coupon, amount);
-          const savings = Math.round(amount * (coupon.discountPercent / 100));
+          const savings = calcDiscount(coupon, amount);
 
           return (
             <Card

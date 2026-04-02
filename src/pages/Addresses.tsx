@@ -11,7 +11,7 @@ import { AddressDraft, AddressPicker } from "../components/address/AddressPicker
 
 const Addresses = () => {
   const navigate = useNavigate();
-  const { user, isAuthenticated, setShowLoginModal } = useAuth();
+  const { profile, isAuthenticated, setShowLoginModal } = useAuth();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,9 +32,9 @@ const Addresses = () => {
       return;
     }
 
-    const userAddresses = readAddresses(user?.phoneNumber);
+    const userAddresses = readAddresses(profile?.phone_number);
     setAddresses(userAddresses);
-  }, [user, isAuthenticated, navigate, setShowLoginModal]);
+  }, [profile, isAuthenticated, navigate, setShowLoginModal]);
 
   const resetForm = () => {
     setForm({
@@ -52,7 +52,7 @@ const Addresses = () => {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!user?.phoneNumber) return;
+    if (!profile?.phone_number) return;
 
     if (!form.houseNumber || !form.fullAddress || !form.city || !form.pincode) {
       toast.error("Please fill all fields");
@@ -65,7 +65,7 @@ const Addresses = () => {
         addr.id === editingId ? { ...addr, ...form } : addr
       );
       setAddresses(updated);
-      writeAddresses(user.phoneNumber, updated);
+      writeAddresses(profile!.phone_number, updated);
       toast.success("Address updated");
     } else {
       // Add new
@@ -75,7 +75,7 @@ const Addresses = () => {
       };
       const updated = [newAddress, ...addresses];
       setAddresses(updated);
-      writeAddresses(user.phoneNumber, updated);
+      writeAddresses(profile!.phone_number, updated);
       toast.success("Address added");
     }
 
@@ -97,11 +97,11 @@ const Addresses = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (!user?.phoneNumber) return;
+    if (!profile?.phone_number) return;
 
     const updated = addresses.filter((addr) => addr.id !== id);
     setAddresses(updated);
-    writeAddresses(user.phoneNumber, updated);
+    writeAddresses(profile!.phone_number, updated);
     toast.success("Address deleted");
   };
 

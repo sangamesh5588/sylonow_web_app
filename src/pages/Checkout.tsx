@@ -1,58 +1,41 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
+  BadgeAlert,
   CalendarDays,
   Check,
   ChevronLeft,
   ChevronDown,
   CreditCard,
   MapPin,
+  Pencil,
   Plus,
   ReceiptIndianRupee,
   ShieldCheck,
+  Star,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { Button, Card, Input } from "../components/ui";
+import { supabase } from "../lib/supabase";
+import QRCode from "qrcode";
 import { BookingDraft, clearBookingDraft, createOrder, readAddresses, readBookingDraft, saveBookingDraft, writeAddresses } from "../lib/booking";
-import { CHECKOUT_COUPONS, findCheckoutCoupon, isCouponAvailableForAmount } from "../lib/coupons";
+import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount } from "../lib/coupons";
+import { createRazorpayOrder, openRazorpayCheckout, verifyRazorpayPayment } from "../lib/razorpay";
 import { formatCurrency } from "../lib/utils";
-import { fetchServiceById } from "../lib/services";
+import { fetchServiceById, fetchPricingLogic, getAdvanceAmount, PricingTier } from "../lib/services";
 import { useAuth } from "../contexts/AuthContext";
 import { Address, Service } from "../types";
 import { AddressDraft, AddressPicker } from "../components/address/AddressPicker";
-
-const DATE_OPTIONS = Array.from({ length: 15 }, (_, index) => {
-  const baseDate = new Date();
-  baseDate.setDate(baseDate.getDate() + index);
-
-  const label =
-    index === 0
-      ? "Today"
-      : index === 1
-        ? "Tomorrow"
-        : new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(baseDate);
-
-  return {
-    label,
-    date: baseDate.toISOString().split("T")[0],
-    display: new Intl.DateTimeFormat("en-US", {
-      day: "2-digit",
-      month: "short",
-    }).format(baseDate),
-  };
-});
-
-const TIME_GROUPS = [
-  { label: "Morning", slots: ["9:00 AM", "10:30 AM", "12:00 PM"] },
-  { label: "Afternoon", slots: ["1:30 PM", "3:00 PM", "4:30 PM"] },
-  { label: "Evening", slots: ["6:00 PM", "7:30 PM", "9:00 PM"] },
-] as const;
+import { normalizeCityName } from "../lib/citySelection";
+import { COMPANY_CONTACT } from "../lib/siteContent";
+import { parseNoticeHours, getAvailableDates, getAvailableSlotsForDate } from "../lib/bookingAvailability";
 
 const CouponSection = ({
   couponInput,
   appliedCouponCode,
+  coupons,
   appliedCoupon,
   discountAmount,
   onCouponInputChange,
@@ -64,7 +47,8 @@ const CouponSection = ({
 }: {
   couponInput: string;
   appliedCouponCode: string | null;
-  appliedCoupon: (typeof CHECKOUT_COUPONS)[number] | null;
+  coupons: CheckoutCoupon[];
+  appliedCoupon: CheckoutCoupon | null;
   discountAmount: number;
   onCouponInputChange: (value: string) => void;
   onApplyCoupon: () => void;
@@ -106,7 +90,7 @@ const CouponSection = ({
     </div>
 
     <div className="flex gap-2 overflow-x-auto no-scrollbar">
-      {CHECKOUT_COUPONS.slice(0, 2).map((coupon) => {
+      {coupons.slice(0, 2).map((coupon) => {
         const isApplied = appliedCouponCode === coupon.code;
         const isAvailable = isCouponAvailableForAmount(coupon, baseServicePrice);
         return (
@@ -159,7 +143,8 @@ const getMobileAddressPreview = (address?: string | null) => {
 const Checkout = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { isAuthenticated, setShowLoginModal, user } = useAuth();
+  const { isAuthenticated, setShowLoginModal, profile } = useAuth();
+  const requiresLogin = !isAuthenticated || !profile?.phone_number;
   const initialDraft = readBookingDraft();
   const [bookingDraft, setBookingDraft] = useState<BookingDraft | null>(initialDraft);
   const [service, setService] = useState<Service | null>(null);
@@ -168,14 +153,22 @@ const Checkout = () => {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState("");
   const [showAddressForm, setShowAddressForm] = useState(false);
+  const [showAddressPicker, setShowAddressPicker] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [showPriceBreakdown, setShowPriceBreakdown] = useState(false);
+  const [coupons, setCoupons] = useState<CheckoutCoupon[]>([]);
   const [couponInput, setCouponInput] = useState("");
   const [appliedCouponCode, setAppliedCouponCode] = useState<string | null>(null);
+  const [isPaying, setIsPaying] = useState(false);
+  const [pricingTiers, setPricingTiers] = useState<PricingTier[]>([]);
+  const [payMode, setPayMode] = useState<"advance" | "full">("full");
+  const [payModeOpen, setPayModeOpen] = useState(false);
   const [pendingAddressAction, setPendingAddressAction] = useState(false);
-  const [selectedTimeGroup, setSelectedTimeGroup] = useState<(typeof TIME_GROUPS)[number]["label"]>("Evening");
+  const [selectedTimeGroup, setSelectedTimeGroup] = useState<"Morning" | "Afternoon" | "Evening">("Evening");
   const [addressForm, setAddressForm] = useState<AddressDraft>({
     label: "Home",
+    houseNumber: "",
     fullAddress: "",
     city: "",
     pincode: "",
@@ -212,58 +205,131 @@ const Checkout = () => {
   }, [bookingDraft?.serviceId]);
 
   useEffect(() => {
+    fetchActiveCoupons().then(setCoupons);
+    fetchPricingLogic().then(setPricingTiers);
+  }, []);
+
+  useEffect(() => {
     if (!bookingDraft || !service) {
       return;
     }
 
-    if (!isAuthenticated) {
+    if (requiresLogin) {
       setAddresses([]);
       setSelectedAddressId("");
       return;
     }
 
-    const nextAddresses = readAddresses(user?.phoneNumber);
+    const nextAddresses = readAddresses(profile?.phone_number);
     setAddresses(nextAddresses);
     if (nextAddresses[0]) {
       setSelectedAddressId(nextAddresses[0].id);
     }
-  }, [bookingDraft, isAuthenticated, service, user?.phoneNumber]);
+  }, [bookingDraft, requiresLogin, service, profile?.phone_number]);
 
   useEffect(() => {
-    if (isAuthenticated && pendingAddressAction) {
+    if (!requiresLogin && pendingAddressAction) {
       setShowAddressForm(true);
       setPendingAddressAction(false);
     }
-  }, [isAuthenticated, pendingAddressAction]);
+  }, [requiresLogin, pendingAddressAction]);
+
+  const noticeHours = parseNoticeHours(service?.bookingNotice);
+  const dateOptions = useMemo(() => getAvailableDates(noticeHours), [noticeHours]);
+  const availableSlotsForDate = useMemo(
+    () => getAvailableSlotsForDate(bookingDraft?.date ?? "", noticeHours),
+    [bookingDraft?.date, noticeHours]
+  );
+  const timeGroups = useMemo(() => [
+    { label: "Morning" as const, slots: availableSlotsForDate.filter((s) => ["9:00 AM", "10:30 AM", "12:00 PM"].includes(s)) },
+    { label: "Afternoon" as const, slots: availableSlotsForDate.filter((s) => ["1:30 PM", "3:00 PM", "4:30 PM"].includes(s)) },
+    { label: "Evening" as const, slots: availableSlotsForDate.filter((s) => ["6:00 PM", "7:30 PM", "9:00 PM"].includes(s)) },
+  ].filter((g) => g.slots.length > 0), [availableSlotsForDate]);
 
   useEffect(() => {
     if (!bookingDraft?.time) return;
-    const matchingGroup = TIME_GROUPS.find((group) =>
+    const matchingGroup = timeGroups.find((group) =>
       (group.slots as readonly string[]).includes(bookingDraft.time)
     );
     if (matchingGroup) {
       setSelectedTimeGroup(matchingGroup.label);
     }
-  }, [bookingDraft?.time]);
+  }, [bookingDraft?.time, timeGroups]);
+
+  // When available slots change (date change), auto-select first valid group + slot
+  useEffect(() => {
+    if (timeGroups.length === 0) return;
+    const currentGroupStillValid = timeGroups.some((g) => g.label === selectedTimeGroup);
+    const targetGroup = currentGroupStillValid
+      ? timeGroups.find((g) => g.label === selectedTimeGroup)!
+      : timeGroups[0];
+    if (!currentGroupStillValid) {
+      setSelectedTimeGroup(targetGroup.label);
+    }
+    if (!bookingDraft?.time || !targetGroup.slots.includes(bookingDraft.time)) {
+      setBookingDraft((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, time: targetGroup.slots[0] };
+        saveBookingDraft(next);
+        return next;
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeGroups]);
 
   const selectedAddress = useMemo(
     () => addresses.find((item) => item.id === selectedAddressId) ?? null,
     [addresses, selectedAddressId]
   );
+  const serviceCity = normalizeCityName((service?.location ?? "").split(",")[0] || "Bengaluru");
+  const selectedAddressCity = selectedAddress?.city ? normalizeCityName(selectedAddress.city) : "";
+  const isSelectedAddressServiceable =
+    !selectedAddress || !selectedAddressCity || selectedAddressCity === serviceCity;
   const mobileAddressPreview = getMobileAddressPreview(selectedAddress?.fullAddress);
   const selectedTimeOptions =
-    TIME_GROUPS.find((group) => group.label === selectedTimeGroup)?.slots ?? TIME_GROUPS[2].slots;
+    timeGroups.find((group) => group.label === selectedTimeGroup)?.slots ?? timeGroups[timeGroups.length - 1]?.slots ?? [];
   const selectedDateDisplay =
-    DATE_OPTIONS.find((option) => option.date === bookingDraft?.date)?.display ?? bookingDraft?.date ?? "";
-  const appliedCoupon = useMemo(() => findCheckoutCoupon(appliedCouponCode), [appliedCouponCode]);
+    dateOptions.find((option) => option.date === bookingDraft?.date)?.display ?? bookingDraft?.date ?? "";
+  const appliedCoupon = useMemo(() => findCoupon(coupons, appliedCouponCode), [coupons, appliedCouponCode]);
   const baseServicePrice = bookingDraft?.price ?? service?.price ?? 0;
-  const discountAmount = appliedCoupon
-    ? Math.round(baseServicePrice * (appliedCoupon.discountPercent / 100))
+  const originalPrice = service?.originalPrice ?? baseServicePrice;
+  const priceDiscount = Math.max(originalPrice - baseServicePrice, 0);
+  const couponDiscount = appliedCoupon ? calcDiscount(appliedCoupon, baseServicePrice) : 0;
+  const discountAmount = couponDiscount; // kept for coupon UI compatibility
+  const discountedServicePrice = Math.max(baseServicePrice - couponDiscount, 0);
+
+  // Travel fee calculation
+  const distanceKm = useMemo(() => {
+    if (
+      !selectedAddress?.latitude || !selectedAddress?.longitude ||
+      !service?.latitude || !service?.longitude
+    ) return null;
+    const toRad = (v: number) => (v * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(selectedAddress.latitude - service.latitude);
+    const dLng = toRad(selectedAddress.longitude - service.longitude);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(service.latitude)) *
+      Math.cos(toRad(selectedAddress.latitude)) *
+      Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }, [selectedAddress?.latitude, selectedAddress?.longitude, service?.latitude, service?.longitude]);
+
+  const freeServiceKm = service?.freeServiceKm ?? 0;
+  const extraChargesPerKm = service?.extraChargesPerKm ?? 0;
+  const extraKm = distanceKm !== null && distanceKm > freeServiceKm
+    ? Math.ceil(distanceKm - freeServiceKm)
     : 0;
-  const discountedServicePrice = Math.max(baseServicePrice - discountAmount, 0);
-  const platformFee = Math.round(discountedServicePrice * 0.02);
-  const taxAndGst = Math.round(discountedServicePrice * 0.03);
-  const total = discountedServicePrice + platformFee + taxAndGst;
+  const travelFee = extraKm > 0 ? extraKm * extraChargesPerKm : 0;
+
+  const total = discountedServicePrice + travelFee;
+  const totalSaved = priceDiscount + couponDiscount + Math.round(baseServicePrice * 0.02) + Math.round(baseServicePrice * 0.03);
+  const advanceAmount = getAdvanceAmount(pricingTiers, total) ?? Math.round(total * 0.3);
+  const FULL_PAYMENT_DISCOUNT = 100;
+  const fullPayAmount = Math.max(total - FULL_PAYMENT_DISCOUNT, 0);
+  const payNow = payMode === "advance" ? advanceAmount : fullPayAmount;
+  const remainingAfterAdvance = payMode === "advance" ? total - advanceAmount : 0;
 
   useEffect(() => {
     const couponFromQuery = searchParams.get("coupon");
@@ -272,7 +338,7 @@ const Checkout = () => {
       return;
     }
 
-    const coupon = findCheckoutCoupon(couponFromQuery);
+    const coupon = findCoupon(coupons, couponFromQuery);
     if (!coupon || !isCouponAvailableForAmount(coupon, baseServicePrice)) {
       setAppliedCouponCode(null);
       return;
@@ -280,7 +346,7 @@ const Checkout = () => {
 
     setAppliedCouponCode(coupon.code);
     setCouponInput(coupon.code);
-  }, [baseServicePrice, searchParams]);
+  }, [baseServicePrice, searchParams, coupons]);
 
   if (!bookingDraft) {
     return (
@@ -368,25 +434,43 @@ const Checkout = () => {
 
   const handleAddAddress = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!user?.phoneNumber) return;
+    if (!profile?.phone_number) return;
 
     if (!addressForm.fullAddress || !addressForm.city || !addressForm.pincode) {
       toast.error("Please fill all address details");
       return;
     }
 
-    const nextAddress: Address = {
-      id: `address-${Date.now()}`,
-      ...addressForm,
-    };
+    let nextAddresses: Address[];
+    if (editingAddressId) {
+      nextAddresses = addresses.map((a) =>
+        a.id === editingAddressId ? { ...a, ...addressForm } : a
+      );
+      setAddresses(nextAddresses);
+      setSelectedAddressId(editingAddressId);
+      writeAddresses(profile!.phone_number, nextAddresses);
+      setEditingAddressId(null);
+      toast.success("Address updated");
+    } else {
+      const nextAddress: Address = {
+        id: `address-${Date.now()}`,
+        ...addressForm,
+      };
+      nextAddresses = [nextAddress, ...addresses];
+      setAddresses(nextAddresses);
+      setSelectedAddressId(nextAddress.id);
+      writeAddresses(profile!.phone_number, nextAddresses);
+      toast.success("Address added");
+    }
 
-    const nextAddresses = [nextAddress, ...addresses];
-    setAddresses(nextAddresses);
-    setSelectedAddressId(nextAddress.id);
-    writeAddresses(user.phoneNumber, nextAddresses);
+    if (normalizeCityName(addressForm.city) !== serviceCity) {
+      toast.info(`This setup is currently available in ${serviceCity}. You can keep this address saved and switch to a supported city anytime.`);
+    }
+
     setShowAddressForm(false);
     setAddressForm({
       label: "Home",
+      houseNumber: "",
       fullAddress: "",
       city: "",
       pincode: "",
@@ -394,7 +478,6 @@ const Checkout = () => {
       longitude: undefined,
       placeId: undefined,
     });
-    toast.success("Address added");
   };
 
   const updateBookingDraft = (updates: Partial<BookingDraft>) => {
@@ -405,7 +488,7 @@ const Checkout = () => {
   };
 
   const openAddressFlow = () => {
-    if (!isAuthenticated) {
+    if (requiresLogin) {
       setPendingAddressAction(true);
       setShowLoginModal(true);
       toast.error("Please login to add an address");
@@ -422,7 +505,7 @@ const Checkout = () => {
       return;
     }
 
-    const coupon = findCheckoutCoupon(normalizedCode);
+    const coupon = findCoupon(coupons, normalizedCode);
     if (!coupon) {
       toast.error("Invalid coupon code");
       return;
@@ -456,7 +539,7 @@ const Checkout = () => {
       handleRemoveCoupon();
       return;
     }
-    const coupon = findCheckoutCoupon(code);
+    const coupon = findCoupon(coupons, code);
     if (!coupon) return;
     if (!isCouponAvailableForAmount(coupon, baseServicePrice)) {
       toast.error(`Coupon valid on orders above ${formatCurrency(coupon.minOrderAmount)}`);
@@ -473,35 +556,101 @@ const Checkout = () => {
     navigate(`/coupons?returnTo=/checkout&amount=${baseServicePrice}&coupon=${appliedCouponCode ?? ""}`);
   };
 
-  const handlePlaceOrder = () => {
-    if (!isAuthenticated) {
-      setPendingAddressAction(true);
-      setShowLoginModal(true);
-      toast.error("Please login to continue");
-      return;
-    }
-
+  const handlePlaceOrder = async () => {
     if (!selectedAddress) {
       toast.error("Add or select an address to continue");
       openAddressFlow();
       return;
     }
 
-    if (!user?.phoneNumber || !bookingDraft) return;
+    if (requiresLogin) {
+      setPendingAddressAction(true);
+      setShowLoginModal(true);
+      toast.error("Please login to continue");
+      return;
+    }
 
-    // Create order before clearing draft
-    createOrder(
-      user.phoneNumber,
-      user.phoneNumber,
-      service,
-      { ...bookingDraft, price: discountedServicePrice },
-      selectedAddress,
-      total
-    );
+    if (!profile?.phone_number || !bookingDraft) return;
+    if (!isSelectedAddressServiceable) {
+      toast.error(`This setup is currently available only in ${serviceCity}. Please select a supported address to continue.`);
+      return;
+    }
 
-    clearBookingDraft();
-    toast.success("Booking confirmed! View in My Orders");
-    navigate("/orders");
+    try {
+      setIsPaying(true);
+
+      const order = await createRazorpayOrder({
+        amount: payNow,
+        serviceId: service.id,
+        serviceTitle: service.title,
+        bookingDate: bookingDraft.date,
+        bookingTime: bookingDraft.time,
+        phoneNumber: profile.phone_number,
+        couponCode: appliedCouponCode,
+      });
+
+      const paymentResult = await openRazorpayCheckout({
+        order,
+        name: "Sylonow",
+        description: `${service.title} booking`,
+        phoneNumber: profile.phone_number.replace(/\D/g, "").slice(-10),
+      });
+
+      await verifyRazorpayPayment(paymentResult);
+
+      // Parse booking time from "9:00 AM" → "09:00:00"
+      const parseTime = (t: string): string => {
+        const [time, meridiem] = t.split(" ");
+        let [hours, minutes] = time.split(":").map(Number);
+        if (meridiem === "PM" && hours !== 12) hours += 12;
+        if (meridiem === "AM" && hours === 12) hours = 0;
+        return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`;
+      };
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const orderId = `order-${Date.now()}`;
+      const qrCode = await QRCode.toDataURL(orderId, { width: 256, margin: 2 });
+
+      const { error: orderError } = await supabase.from("orders").insert({
+        id: orderId,
+        user_id: user?.id ?? null,
+        customer_name: profile.full_name ?? profile.phone_number,
+        customer_phone: profile.phone_number,
+        service_title: service.title,
+        service_description: service.description ?? null,
+        booking_date: new Date(bookingDraft.date).toISOString(),
+        booking_time: parseTime(bookingDraft.time),
+        total_amount: total,
+        advance_amount: payNow,
+        remaining_amount: remainingAfterAdvance,
+        status: "confirmed",
+        payment_status: remainingAfterAdvance > 0 ? "partial" : "paid",
+        address_id: selectedAddress.id ?? null,
+        qr_code: qrCode,
+      });
+
+      if (orderError) throw new Error(orderError.message);
+
+      await createOrder(
+        profile.phone_number,
+        user?.id ?? "",
+        service,
+        bookingDraft,
+        selectedAddress,
+        total,
+        "confirmed",
+        orderId
+      );
+
+      clearBookingDraft();
+      toast.success("Payment successful! Booking confirmed.");
+      navigate("/orders");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Payment failed. Please try again.";
+      toast.error(message);
+    } finally {
+      setIsPaying(false);
+    }
   };
 
   return (
@@ -537,8 +686,8 @@ const Checkout = () => {
                 <h2 className="mt-2 break-words text-xl font-semibold leading-tight text-[#22313f] sm:text-2xl">
                   {service.title}
                 </h2>
-                <p className="mt-3 break-words text-sm leading-6 text-[#667085]">
-                  {service.category} - PartyCraft Studio
+                <p className="mt-3 text-sm leading-6 text-[#667085]">
+                  {service.category}
                 </p>
               </div>
 
@@ -598,6 +747,7 @@ const Checkout = () => {
             <CouponSection
               couponInput={couponInput}
               appliedCouponCode={appliedCouponCode}
+              coupons={coupons}
               appliedCoupon={appliedCoupon}
               discountAmount={discountAmount}
               onCouponInputChange={setCouponInput}
@@ -609,54 +759,61 @@ const Checkout = () => {
             />
           </div>
 
-          <Card className="space-y-5 border border-[#f0e7e2] p-5 shadow-none sm:p-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="space-y-4 border border-[#f0e7e2] p-5 shadow-none sm:p-6">
+            <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-[#FB2965]">Address</p>
                 <h2 className="text-lg font-semibold text-[#0B4964]">Setup location</h2>
               </div>
-              <button
-                type="button"
-                onClick={openAddressFlow}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-[#eadfdb] bg-white px-4 py-2 text-sm font-medium text-[#0B4964] transition-colors hover:border-[#0B4964] sm:w-auto"
-              >
-                <Plus size={15} />
-                Add address
-              </button>
             </div>
 
-            {isAuthenticated && addresses.length > 0 ? (
-              <div className="space-y-3">
-                {addresses.map((address) => {
-                  const isSelected = address.id === selectedAddressId;
-                  return (
-                    <button
-                      key={address.id}
-                      type="button"
-                      onClick={() => setSelectedAddressId(address.id)}
-                      className={`flex w-full flex-col gap-3 rounded-[24px] border p-4 text-left transition sm:flex-row sm:items-center sm:justify-between ${
-                        isSelected
-                          ? "border-[#0B4964] bg-[#f5fbff]"
-                          : "border-[#e4e7ec] bg-white"
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-start gap-3 text-[#0B4964]">
-                        <MapPin size={18} className="mt-0.5 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-[#98a2b3]">{address.label}</p>
-                          <p className="mt-1 break-words text-sm font-medium text-[#22313f]">{address.fullAddress}</p>
-                          <p className="text-xs text-[#667085]">{address.city} - {address.pincode}</p>
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <div className="flex h-6 w-6 shrink-0 self-end items-center justify-center rounded-full bg-[#0B4964] text-white sm:self-auto">
-                          <Check size={14} />
-                        </div>
+            {selectedAddress ? (
+              <>
+                <div className="flex items-start gap-3 rounded-[20px] border border-[#0B4964] bg-[#f5fbff] p-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#0B4964] text-white">
+                    <MapPin size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-[#98a2b3]">{selectedAddress.label}</p>
+                    <p className="mt-0.5 break-words text-sm font-medium text-[#22313f]">{selectedAddress.fullAddress}</p>
+                    <p className="text-xs text-[#667085]">{selectedAddress.city} - {selectedAddress.pincode}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddressPicker(true)}
+                    className="shrink-0 rounded-full border border-[#eadfdb] bg-white px-3 py-1 text-xs font-semibold text-[#0B4964] transition hover:border-[#0B4964]"
+                  >
+                    Change
+                  </button>
+                </div>
+
+                {distanceKm !== null && freeServiceKm > 0 ? (
+                  <div className={`flex items-center gap-2 rounded-2xl px-3 py-2 ${travelFee > 0 ? "bg-[#fff8f0]" : "bg-[#f0faf4]"}`}>
+                    <span className="text-base">{travelFee > 0 ? "🚗" : "✅"}</span>
+                    <div className="min-w-0 flex-1">
+                      {travelFee > 0 ? (
+                        <>
+                          <p className="text-xs font-semibold text-[#9a3412]">
+                            Travel charge applies — {distanceKm.toFixed(1)} km from vendor
+                          </p>
+                          <p className="text-[11px] text-[#7c5b42] mt-0.5">
+                            Free within {freeServiceKm} km · Extra {extraKm} km × ₹{extraChargesPerKm}/km = <span className="font-bold">+{formatCurrency(travelFee)}</span> added to total
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xs font-semibold text-[#157f3d]">
+                            No travel charge — within free service range
+                          </p>
+                          <p className="text-[11px] text-[#4a8a5c] mt-0.5">
+                            Your location is {distanceKm.toFixed(1)} km away · Free up to {freeServiceKm} km
+                          </p>
+                        </>
                       )}
-                    </button>
-                  );
-                })}
-              </div>
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : (
               <button
                 type="button"
@@ -673,6 +830,108 @@ const Checkout = () => {
               </button>
             )}
           </Card>
+
+          {/* Address Picker Modal */}
+          <AnimatePresence>
+            {showAddressPicker && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+                onClick={() => setShowAddressPicker(false)}
+              >
+                <motion.div
+                  initial={{ y: 60, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: 60, opacity: 0 }}
+                  transition={{ type: "spring", damping: 28, stiffness: 300 }}
+                  className="w-full max-w-md rounded-t-[28px] bg-white p-5 sm:rounded-[28px]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-[#22313f]">Select Address</h3>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddressPicker(false)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f2f4f7] text-[#667085] hover:bg-[#eaecf0]"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-80 overflow-y-auto">
+                    {addresses.map((address) => {
+                      const isSelected = address.id === selectedAddressId;
+                      return (
+                        <div
+                          key={address.id}
+                          className={`flex items-start gap-3 rounded-[18px] border p-3.5 transition ${
+                            isSelected ? "border-[#0B4964] bg-[#f5fbff]" : "border-[#e4e7ec] bg-white"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedAddressId(address.id);
+                              setShowAddressPicker(false);
+                            }}
+                            className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                          >
+                            <MapPin size={16} className="mt-0.5 shrink-0 text-[#0B4964]" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] uppercase tracking-[0.14em] text-[#98a2b3]">{address.label}</p>
+                              <p className="mt-0.5 break-words text-sm font-medium text-[#22313f]">{address.fullAddress}</p>
+                              <p className="text-xs text-[#667085]">{address.city} - {address.pincode}</p>
+                            </div>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingAddressId(address.id);
+                                setAddressForm({
+                                  label: address.label,
+                                  fullAddress: address.fullAddress,
+                                  city: address.city,
+                                  pincode: address.pincode,
+                                  latitude: address.latitude,
+                                  longitude: address.longitude,
+                                  placeId: address.placeId,
+                                });
+                                setShowAddressPicker(false);
+                                setShowAddressForm(true);
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-full bg-[#f2f4f7] text-[#667085] hover:bg-[#eaecf0]"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            {isSelected && (
+                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0B4964] text-white">
+                                <Check size={12} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddressPicker(false);
+                      openAddressFlow();
+                    }}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-[18px] border border-dashed border-[#d0d5dd] bg-[#f9fafb] py-3 text-sm font-semibold text-[#0B4964] transition hover:border-[#0B4964]"
+                  >
+                    <Plus size={15} />
+                    Add new address
+                  </button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="space-y-4">
@@ -680,6 +939,7 @@ const Checkout = () => {
             <CouponSection
               couponInput={couponInput}
               appliedCouponCode={appliedCouponCode}
+              coupons={coupons}
               appliedCoupon={appliedCoupon}
               discountAmount={discountAmount}
               onCouponInputChange={setCouponInput}
@@ -691,77 +951,290 @@ const Checkout = () => {
             />
           </div>
 
-          <Card className="border border-[#f0e7e2] p-4 shadow-none xl:sticky xl:top-24">
+          <div className="flex items-center justify-center gap-2 rounded-2xl bg-[#f8fafc] px-4 py-3">
+            <ShieldCheck size={15} className="shrink-0 text-[#0B4964]" />
+            <p className="text-[11px] font-medium text-[#475467]">
+              100% secure payments powered by{" "}
+              <span className="font-semibold text-[#0B4964]">Razorpay</span>
+            </p>
+          </div>
+
+          <Card className="overflow-hidden border border-[#f0e7e2] p-0 shadow-none xl:sticky xl:top-24">
             <button
               type="button"
               onClick={() => setShowPriceBreakdown((current) => !current)}
-              className="flex w-full items-center gap-3 text-left"
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#4d7f57] text-white">
-                <CreditCard size={18} />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#4d7f57] text-white">
+                <CreditCard size={16} />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xl font-semibold leading-none text-[#22313f] sm:text-2xl">
-                  To Pay {formatCurrency(total)}
+                <p className="text-base font-bold leading-none text-[#22313f]">
+                  To Pay {formatCurrency(payNow)}
                 </p>
-                <p className="mt-1 text-sm font-medium text-[#039855]">Incl. all taxes & charges</p>
+                <p className="mt-0.5 text-xs text-[#039855]">Incl. all taxes & charges</p>
               </div>
               <ChevronDown
-                size={20}
+                size={18}
                 className={`shrink-0 text-[#667085] transition-transform ${showPriceBreakdown ? "rotate-180" : ""}`}
               />
             </button>
+            {totalSaved > 0 ? (
+              <div className="flex items-center gap-2 border-t border-dashed border-[#c5e8d0] bg-[#f0faf4] px-4 py-2">
+                <span className="text-base">🎉</span>
+                <p className="text-xs font-semibold text-[#157f3d]">
+                  You're saving <span className="text-[#0B4964]">{formatCurrency(totalSaved)}</span> on this order!
+                </p>
+              </div>
+            ) : null}
           </Card>
 
           {showPriceBreakdown ? (
-            <Card className="space-y-5 border border-[#f0e7e2] p-5 shadow-none sm:p-6">
-              <div className="flex items-center gap-2 text-[#22313f]">
-                <ReceiptIndianRupee size={18} className="shrink-0 text-[#0B4964]" />
-                <h3 className="text-lg font-semibold leading-none">Price Breakdown</h3>
+            <Card className="border border-[#f0e7e2] p-4 shadow-none">
+              <div className="flex items-center gap-1.5 mb-3">
+                <ReceiptIndianRupee size={14} className="shrink-0 text-[#0B4964]" />
+                <h3 className="text-sm font-semibold text-[#22313f]">Price Breakdown</h3>
               </div>
 
-              <div className="space-y-4 text-[15px]">
+              <div className="space-y-2 text-[13px]">
                 <div className="flex items-center justify-between gap-4 text-[#475467]">
                   <span>Service Price</span>
-                  <span className="shrink-0 font-semibold text-[#22313f]">{formatCurrency(baseServicePrice)}</span>
+                  <div className="flex items-center gap-1.5">
+                    {originalPrice > baseServicePrice ? (
+                      <span className="text-xs text-[#98a2b3] line-through">{formatCurrency(originalPrice)}</span>
+                    ) : null}
+                    <span className="font-semibold text-[#22313f]">{formatCurrency(baseServicePrice)}</span>
+                  </div>
                 </div>
-                {discountAmount > 0 ? (
+
+                {couponDiscount > 0 ? (
                   <div className="flex items-center justify-between gap-4 text-[#039855]">
                     <span>Coupon Discount</span>
-                    <span className="shrink-0 font-semibold">- {formatCurrency(discountAmount)}</span>
+                    <span className="font-semibold">− {formatCurrency(couponDiscount)}</span>
                   </div>
                 ) : null}
+
                 <div className="flex items-center justify-between gap-4 text-[#475467]">
                   <span>Platform Fee</span>
-                  <span className="shrink-0 font-semibold text-[#22313f]">{formatCurrency(platformFee)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-[#98a2b3] line-through">{formatCurrency(Math.round(baseServicePrice * 0.02))}</span>
+                    <span className="font-semibold text-[#039855]">FREE</span>
+                  </div>
                 </div>
+
                 <div className="flex items-center justify-between gap-4 text-[#475467]">
                   <span>Taxes & GST</span>
-                  <span className="shrink-0 font-semibold text-[#22313f]">{formatCurrency(taxAndGst)}</span>
+                  <span className="font-semibold text-[#039855]">Included</span>
                 </div>
+
+                {payMode === "full" ? (
+                  <div className="flex items-center justify-between gap-4 text-[#039855]">
+                    <span className="flex items-center gap-1.5">
+                      Full Payment Discount
+                      <span className="rounded-full bg-[#039855] px-2 py-0.5 text-[10px] font-bold text-white">INSTANT</span>
+                    </span>
+                    <span className="font-semibold">− {formatCurrency(FULL_PAYMENT_DISCOUNT)}</span>
+                  </div>
+                ) : null}
+
+                {distanceKm !== null && freeServiceKm > 0 ? (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <span className={travelFee > 0 ? "text-[#e07b00]" : "text-[#039855]"}>
+                        Travel &amp; Setup Logistics
+                      </span>
+                      <p className="text-[11px] text-[#98a2b3] mt-0.5">
+                        {distanceKm.toFixed(1)} km away · Free up to {freeServiceKm} km
+                        {travelFee > 0
+                          ? ` · +${extraKm} km extra @ ₹${extraChargesPerKm}/km`
+                          : ""}
+                      </p>
+                    </div>
+                    <span className={`font-semibold shrink-0 ${travelFee > 0 ? "text-[#e07b00]" : "text-[#039855]"}`}>
+                      {travelFee > 0 ? `+ ${formatCurrency(travelFee)}` : "FREE"}
+                    </span>
+                  </div>
+                ) : null}
               </div>
 
-              <div className="border-t border-[#eaecf0] pt-5">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-lg font-semibold leading-none text-[#22313f] sm:text-xl">Total Pay-Advance</span>
-                  <span className="shrink-0 text-xl font-semibold leading-none text-[#0B4964] sm:text-2xl">{formatCurrency(total)}</span>
+              <div className="mt-3 border-t border-[#eaecf0] pt-3 flex items-center justify-between gap-4">
+                <div>
+                  <span className="text-sm font-semibold text-[#22313f]">Order Total</span>
+                  {totalSaved > 0 ? (
+                    <p className="text-[11px] text-[#039855] font-medium">🎉 Saving {formatCurrency(totalSaved + (payMode === "full" ? FULL_PAYMENT_DISCOUNT : 0))}</p>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  {payMode === "full" && (
+                    <span className="text-sm text-[#98a2b3] line-through">{formatCurrency(total)}</span>
+                  )}
+                  <span className="text-lg font-bold text-[#0B4964]">{formatCurrency(payNow)}</span>
                 </div>
               </div>
             </Card>
-          ) : (
-            <Card className="border border-[#f0e7e2] p-4 shadow-none">
-              <div className="flex items-center gap-2 rounded-full bg-[#eefbf3] px-4 py-3 text-sm text-[#157f3d]">
-                <ShieldCheck size={16} />
-                Secure booking protected
-              </div>
+          ) : null}
+
+          {/* Payment mode selector */}
+          {pricingTiers.length > 0 && (
+            <Card className="overflow-hidden border border-[#f0e7e2] p-0 shadow-none">
+              {/* Header / collapsed trigger */}
+              <button
+                type="button"
+                onClick={() => setPayModeOpen((o) => !o)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff5f8]">
+                    <CreditCard size={18} className="text-[#FB2965]" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[11px] font-medium text-[#FB2965] uppercase tracking-wide">Payment option</p>
+                    <p className="text-sm font-semibold text-[#22313f]">
+                      {payMode === "advance"
+                        ? `Pay Advance — ${formatCurrency(advanceAmount)}`
+                        : <span className="flex items-center gap-2 text-[#039855]">Pay Full — {formatCurrency(fullPayAmount)} <span className="rounded-full bg-[#039855] px-2 py-0.5 text-[10px] font-bold text-white">₹{FULL_PAYMENT_DISCOUNT} OFF</span></span>}
+                    </p>
+                  </div>
+                </div>
+                <ChevronDown
+                  size={18}
+                  className={`shrink-0 text-[#667085] transition-transform duration-200 ${payModeOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {/* Dropdown options */}
+              <AnimatePresence initial={false}>
+                {payModeOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-2 border-t border-[#f0e7e2] px-4 py-3">
+                      {/* Pay Advance */}
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-all ${payMode === "advance" ? "border-[#0B4964] bg-[#eef4f8]" : "border-[#eaecf0] bg-white"}`}
+                      >
+                        <input
+                          type="radio"
+                          name="payMode"
+                          value="advance"
+                          checked={payMode === "advance"}
+                          onChange={() => { setPayMode("advance"); setPayModeOpen(false); }}
+                          className="h-4 w-4 accent-[#0B4964]"
+                        />
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                          <div>
+                            <p className={`text-sm font-semibold ${payMode === "advance" ? "text-[#0B4964]" : "text-[#344054]"}`}>Pay Advance</p>
+                            <p className="text-[11px] text-[#98a2b3]">Rest {formatCurrency(total - advanceAmount)} due on day of setup</p>
+                          </div>
+                          <span className="text-base font-bold text-[#0B4964]">{formatCurrency(advanceAmount)}</span>
+                        </div>
+                      </label>
+
+                      {/* Pay Full */}
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 px-4 py-3 transition-all ${payMode === "full" ? "border-[#039855] bg-[#f6fef9]" : "border-[#eaecf0] bg-white"}`}
+                      >
+                        <input
+                          type="radio"
+                          name="payMode"
+                          value="full"
+                          checked={payMode === "full"}
+                          onChange={() => { setPayMode("full"); setPayModeOpen(false); }}
+                          className="h-4 w-4 accent-[#039855]"
+                        />
+                        <div className="flex flex-1 items-center justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className={`text-sm font-semibold ${payMode === "full" ? "text-[#039855]" : "text-[#344054]"}`}>Pay Full</p>
+                              <span className="rounded-full bg-[#039855] px-2 py-0.5 text-[10px] font-bold text-white">₹{FULL_PAYMENT_DISCOUNT} OFF</span>
+                            </div>
+                            <p className="text-[11px] text-[#98a2b3]">
+                              <span className="line-through">{formatCurrency(total)}</span> · nothing due later
+                            </p>
+                          </div>
+                          <span className="text-base font-bold text-[#039855]">{formatCurrency(fullPayAmount)}</span>
+                        </div>
+                      </label>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </Card>
           )}
 
+          {/* To Pay summary */}
+          <Card className="overflow-hidden border border-[#e5e9ee] p-0 shadow-none">
+            <div className="flex items-center justify-between gap-3 px-4 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#0B4964] text-white">
+                  <CreditCard size={18} />
+                </div>
+                <div>
+                  <p className="text-base font-bold text-[#22313f]">To Pay {formatCurrency(payNow)}</p>
+                  <p className="text-[11px] text-[#98a2b3]">
+                    {payMode === "advance"
+                      ? `Advance · Balance ${formatCurrency(remainingAfterAdvance)} on day of setup`
+                      : <span className="text-[#039855] font-semibold">Full payment · ₹{FULL_PAYMENT_DISCOUNT} off applied!</span>}
+                  </p>
+                </div>
+              </div>
+            </div>
+            {totalSaved > 0 && (
+              <div className="border-t border-dashed border-[#d1fadf] bg-[#f6fef9] px-4 py-2.5">
+                <p className="text-xs font-semibold text-[#039855]">🎉 You're saving {formatCurrency(totalSaved)} on this order!</p>
+              </div>
+            )}
+          </Card>
+
+          {selectedAddress && !isSelectedAddressServiceable ? (
+            <Card className="space-y-4 border border-[#fed7aa] bg-[#fffaf5] p-4 shadow-none">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff1e8] text-[#e07b00]">
+                  <MapPin size={18} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#9a3412]">
+                    This setup is not live in {selectedAddressCity} yet
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[#7c5b42]">
+                    We currently fulfil this decoration in {serviceCity}. You can save this address, switch to a supported city, or talk to our team for a custom availability check.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button
+                  variant="outline"
+                  className="h-11 rounded-full border-[#f2c7a7] text-[#9a3412] hover:border-[#e07b00]"
+                  onClick={() => setShowAddressPicker(true)}
+                >
+                  Change address
+                </Button>
+                <Button
+                  className="h-11 rounded-full bg-[#FB2965] hover:bg-[#e02456]"
+                  onClick={() => window.location.assign(`tel:${COMPANY_CONTACT.phone.replace(/\s+/g, "")}`)}
+                >
+                  Talk to support
+                </Button>
+              </div>
+            </Card>
+          ) : null}
+
           <Button
-            className="h-14 w-full bg-[#0B4964] text-base font-semibold hover:bg-[#08384e]"
+            className="h-14 w-full bg-[#FB2965] text-base font-semibold hover:bg-[#e02456]"
             onClick={handlePlaceOrder}
+            disabled={isPaying || (Boolean(selectedAddress) && !isSelectedAddressServiceable)}
           >
-            {selectedAddress ? "Continue to payment" : "Add or select address"}
+            {selectedAddress
+              ? !isSelectedAddressServiceable
+                ? `Available in ${serviceCity} only`
+                : isPaying
+                  ? "Opening Razorpay..."
+                  : `Pay ${formatCurrency(payNow)} now`
+              : "Add or select address"}
           </Button>
         </div>
       </div>
@@ -774,7 +1247,7 @@ const Checkout = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowAddressForm(false)}
+              onClick={() => { setShowAddressForm(false); setEditingAddressId(null); setAddressForm({ label: "Home", houseNumber: "", fullAddress: "", city: "", pincode: "", latitude: undefined, longitude: undefined, placeId: undefined }); }}
               className="fixed inset-0 z-40 bg-[#101828]/35 backdrop-blur-[2px]"
             />
             <motion.div
@@ -788,11 +1261,17 @@ const Checkout = () => {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-medium text-[#FB2965]">Address</p>
-                  <h2 className="text-xl font-semibold text-[#0B4964]">Add event location</h2>
+                  <h2 className="text-xl font-semibold text-[#0B4964]">
+                    {editingAddressId ? "Edit address" : "Add event location"}
+                  </h2>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowAddressForm(false)}
+                  onClick={() => {
+                    setShowAddressForm(false);
+                    setEditingAddressId(null);
+                    setAddressForm({ label: "Home", houseNumber: "", fullAddress: "", city: "", pincode: "", latitude: undefined, longitude: undefined, placeId: undefined });
+                  }}
                   className="rounded-full bg-[#f4f6fb] p-2 text-[#667085]"
                 >
                   <X size={18} />
@@ -812,7 +1291,7 @@ const Checkout = () => {
                   <AddressPicker value={addressForm} onChange={setAddressForm} />
                 </div>
                 <Button className="mb-2 mt-6 h-12 w-full rounded-2xl bg-[#0B4964] font-semibold hover:bg-[#08384e]">
-                  Save address
+                  {editingAddressId ? "Update address" : "Save address"}
                 </Button>
               </form>
             </motion.div>
@@ -860,7 +1339,7 @@ const Checkout = () => {
                     <CalendarDays size={16} className="text-[#667085]" />
                   </div>
                   <div className="flex gap-3 overflow-x-auto pb-1 no-scrollbar">
-                    {DATE_OPTIONS.map((option) => (
+                    {dateOptions.map((option) => (
                       <button
                         key={option.date}
                         type="button"
@@ -881,7 +1360,7 @@ const Checkout = () => {
                 <div>
                   <h3 className="text-sm font-semibold text-[#344054]">Select preferred time</h3>
                   <div className="mt-3 flex gap-2 overflow-x-auto no-scrollbar">
-                    {TIME_GROUPS.map((group) => (
+                    {timeGroups.map((group) => (
                       <button
                         key={group.label}
                         type="button"
@@ -899,19 +1378,19 @@ const Checkout = () => {
                       </button>
                     ))}
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="mt-4 grid grid-cols-3 gap-3">
                     {selectedTimeOptions.map((slot) => (
                       <button
                         key={slot}
                         type="button"
                         onClick={() => updateBookingDraft({ time: slot })}
-                        className={`rounded-2xl border px-3 py-4 text-center transition ${
+                        className={`rounded-2xl border px-2 py-4 text-center transition ${
                           bookingDraft.time === slot
                             ? "border-[#0B4964] bg-[#f5fbff] text-[#0B4964]"
                             : "border-[#e4e7ec] bg-white text-[#344054]"
                         }`}
                       >
-                        <p className="text-[15px] font-semibold">{slot}</p>
+                        <p className="text-[14px] font-bold">{slot}</p>
                         <p className="mt-1 text-[11px] text-[#1570ef]">Available</p>
                       </button>
                     ))}
