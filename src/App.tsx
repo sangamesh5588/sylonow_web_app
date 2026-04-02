@@ -36,7 +36,7 @@ export default function App() {
         <LoginModal />
         <PWAInstallPrompt />
         <Routes>
-          <Route path="/wedly-by-sylonow" element={<WedlyBySylonow />} />
+          <Route path="/wedlyz-by-sylonow" element={<WedlyBySylonow />} />
           <Route path="/sylonow-partner" element={<SylonowPartner />} />
           <Route path="/" element={<Layout />}>
             <Route index element={<Home />} />
