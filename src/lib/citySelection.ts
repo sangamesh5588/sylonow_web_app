@@ -120,19 +120,23 @@ export const getLocationPermissionState = async (): Promise<"granted" | "denied"
 
 /**
  * Detect approximate city from IP address (no permission needed).
- * Uses ip-api.com free tier — no API key required.
+ * Uses ipapi.co — supports HTTPS and CORS from browsers.
  */
 export const detectCityFromIP = async (): Promise<{ city: string; coords: UserCoords } | null> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch("https://ip-api.com/json/?fields=city,lat,lon,status", { signal: AbortSignal.timeout(5000) });
+    const res = await fetch("https://ipapi.co/json/", { signal: controller.signal });
     const json = await res.json();
-    if (json.status !== "success" || !json.lat) return null;
+    if (!json.latitude || !json.longitude) return null;
     return {
       city: normalizeCityName(json.city || ""),
-      coords: { latitude: json.lat, longitude: json.lon },
+      coords: { latitude: json.latitude, longitude: json.longitude },
     };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 };
 

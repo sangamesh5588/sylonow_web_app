@@ -132,8 +132,8 @@ export const Navbar = () => {
   const handleUseMyLocation = async () => {
     setLocationError("");
     setDetectingLocation(true);
-    try {
-      const { city, coords } = await detectCityFromBrowser();
+
+    const applyLocation = (city: string, coords: { latitude: number; longitude: number }) => {
       writeUserCoords(coords);
       setNearMeActive(true);
       setNearMe(true);
@@ -142,36 +142,24 @@ export const Navbar = () => {
         writeSelectedCity(city);
       }
       setIsCityPickerOpen(false);
-
       if (location.pathname.startsWith("/category/")) {
         const nextParams = new URLSearchParams(location.search);
         nextParams.set("nearMe", "1");
         if (city) nextParams.set("location", city);
         navigate(`${location.pathname}?${nextParams.toString()}`, { replace: true });
       }
-    } catch (err: any) {
-      // GPS denied or unavailable — fall back to IP-based location
+    };
+
+    try {
+      const { city, coords } = await detectCityFromBrowser();
+      applyLocation(city, coords);
+    } catch {
+      // GPS failed — try IP-based location silently
       const ipResult = await detectCityFromIP();
       if (ipResult) {
-        writeUserCoords(ipResult.coords);
-        setNearMeActive(true);
-        setNearMe(true);
-        if (ipResult.city) {
-          setSelectedCity(ipResult.city);
-          writeSelectedCity(ipResult.city);
-        }
-        setIsCityPickerOpen(false);
-
-        if (location.pathname.startsWith("/category/")) {
-          const nextParams = new URLSearchParams(location.search);
-          nextParams.set("nearMe", "1");
-          if (ipResult.city) nextParams.set("location", ipResult.city);
-          navigate(`${location.pathname}?${nextParams.toString()}`, { replace: true });
-        }
-      } else if (err?.code === 1) {
-        setLocationError("Location blocked. Please allow location in your browser settings and try again.");
+        applyLocation(ipResult.city, ipResult.coords);
       } else {
-        setLocationError("Could not detect your location. Try again.");
+        setLocationError("Location access denied. Please allow location in browser settings and try again.");
       }
     } finally {
       setDetectingLocation(false);
