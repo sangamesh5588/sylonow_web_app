@@ -105,6 +105,38 @@ export const distanceKm = (lat1: number, lon1: number, lat2: number, lon2: numbe
 };
 
 /**
+ * Check the browser geolocation permission state without triggering a prompt.
+ * Returns "granted" | "denied" | "prompt" | "unknown"
+ */
+export const getLocationPermissionState = async (): Promise<"granted" | "denied" | "prompt" | "unknown"> => {
+  try {
+    if (!navigator.permissions) return "unknown";
+    const result = await navigator.permissions.query({ name: "geolocation" });
+    return result.state as "granted" | "denied" | "prompt";
+  } catch {
+    return "unknown";
+  }
+};
+
+/**
+ * Detect approximate city from IP address (no permission needed).
+ * Uses ip-api.com free tier — no API key required.
+ */
+export const detectCityFromIP = async (): Promise<{ city: string; coords: UserCoords } | null> => {
+  try {
+    const res = await fetch("https://ip-api.com/json/?fields=city,lat,lon,status", { signal: AbortSignal.timeout(5000) });
+    const json = await res.json();
+    if (json.status !== "success" || !json.lat) return null;
+    return {
+      city: normalizeCityName(json.city || ""),
+      coords: { latitude: json.lat, longitude: json.lon },
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Requests GPS from the browser and reverse-geocodes to a city name via
  * the Google Maps Geocoding API. Returns the city string or null on failure.
  */
@@ -124,7 +156,6 @@ export const detectCityFromBrowser = (): Promise<{ city: string; coords: UserCoo
 
         const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
         if (!apiKey) {
-          // No API key — still resolve with coords, city detection skipped
           resolve({ city: "", coords });
           return;
         }
@@ -142,7 +173,6 @@ export const detectCityFromBrowser = (): Promise<{ city: string; coords: UserCoo
           const city = locality ? normalizeCityName(locality) : "";
           resolve({ city, coords });
         } catch {
-          // Geocoding failed but we still have coords — resolve without city
           resolve({ city: "", coords });
         }
       },

@@ -8,6 +8,8 @@ import {
   readSelectedCity,
   writeSelectedCity,
   detectCityFromBrowser,
+  detectCityFromIP,
+  getLocationPermissionState,
   writeUserCoords,
   setNearMeActive,
   isNearMeActive,
@@ -59,6 +61,15 @@ export const Navbar = () => {
       if (!active) return;
       setAvailableCities(getSelectableCities(services));
     });
+
+    // Auto-detect city from IP on first visit (no permission needed)
+    if (!readSelectedCity() || readSelectedCity() === "Bengaluru") {
+      detectCityFromIP().then((result) => {
+        if (!active || !result) return;
+        writeSelectedCity(result.city);
+        setSelectedCity(result.city);
+      });
+    }
 
     return () => {
       active = false;
@@ -120,8 +131,16 @@ export const Navbar = () => {
   };
 
   const handleUseMyLocation = async () => {
-    setDetectingLocation(true);
     setLocationError("");
+
+    // Check permission state before attempting — avoids silent failure on denied
+    const permState = await getLocationPermissionState();
+    if (permState === "denied") {
+      setLocationError("Location blocked. Go to browser Settings → Site Settings → Location and allow this site.");
+      return;
+    }
+
+    setDetectingLocation(true);
     try {
       const { city, coords } = await detectCityFromBrowser();
       writeUserCoords(coords);
@@ -140,11 +159,11 @@ export const Navbar = () => {
         navigate(`${location.pathname}?${nextParams.toString()}`, { replace: true });
       }
     } catch (err: any) {
-      const msg =
-        err?.code === 1
-          ? "Location access denied. Please allow location in browser settings."
-          : "Could not detect your location. Try again.";
-      setLocationError(msg);
+      if (err?.code === 1) {
+        setLocationError("Location blocked. Go to browser Settings → Site Settings → Location and allow this site.");
+      } else {
+        setLocationError("Could not detect your location. Try again.");
+      }
     } finally {
       setDetectingLocation(false);
     }
