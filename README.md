@@ -19,3 +19,4 @@ View your app in AI Studio: https://ai.studio/apps/a1d88a6c-3112-4a02-8dee-71944
 3. Run the app:
    `npm run dev`
 # sylonow_web_app
+# sylonow_web_app
