@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   BadgeAlert,
@@ -166,6 +166,8 @@ const Checkout = () => {
   const [payModeOpen, setPayModeOpen] = useState(false);
   const [pendingAddressAction, setPendingAddressAction] = useState(false);
   const [selectedTimeGroup, setSelectedTimeGroup] = useState<"Morning" | "Afternoon" | "Evening">("Evening");
+  const [showStickyCheckoutBar, setShowStickyCheckoutBar] = useState(false);
+  const checkoutActionRef = useRef<HTMLButtonElement | null>(null);
   const [addressForm, setAddressForm] = useState<AddressDraft>({
     label: "Home",
     houseNumber: "",
@@ -176,6 +178,20 @@ const Checkout = () => {
     longitude: undefined,
     placeId: undefined,
   });
+
+  const resetAddressForm = () => {
+    setEditingAddressId(null);
+    setAddressForm({
+      label: "Home",
+      houseNumber: "",
+      fullAddress: "",
+      city: "",
+      pincode: "",
+      latitude: undefined,
+      longitude: undefined,
+      placeId: undefined,
+    });
+  };
 
   useEffect(() => {
     if (!bookingDraft?.serviceId) {
@@ -233,6 +249,29 @@ const Checkout = () => {
       setPendingAddressAction(false);
     }
   }, [requiresLogin, pendingAddressAction]);
+
+  useEffect(() => {
+    const hasModalOpen = showAddressForm || showAddressPicker || showScheduleForm;
+    if (!hasModalOpen) return;
+
+    const { body, documentElement } = document;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyPaddingRight = body.style.paddingRight;
+    const previousHtmlOverflow = documentElement.style.overflow;
+    const scrollbarWidth = window.innerWidth - documentElement.clientWidth;
+
+    body.style.overflow = "hidden";
+    documentElement.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      body.style.paddingRight = previousBodyPaddingRight;
+      documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [showAddressForm, showAddressPicker, showScheduleForm]);
 
   const noticeHours = parseNoticeHours(service?.bookingNotice);
   const dateOptions = useMemo(() => getAvailableDates(noticeHours), [noticeHours]);
@@ -330,6 +369,21 @@ const Checkout = () => {
   const fullPayAmount = Math.max(total - FULL_PAYMENT_DISCOUNT, 0);
   const payNow = payMode === "advance" ? advanceAmount : fullPayAmount;
   const remainingAfterAdvance = payMode === "advance" ? total - advanceAmount : 0;
+
+  useEffect(() => {
+    const button = checkoutActionRef.current;
+    if (!button) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setShowStickyCheckoutBar(!entry.isIntersecting);
+      },
+      { threshold: 0.35 }
+    );
+
+    observer.observe(button);
+    return () => observer.disconnect();
+  }, [service?.id, payNow, selectedAddressId, isSelectedAddressServiceable, isPaying]);
 
   useEffect(() => {
     const couponFromQuery = searchParams.get("coupon");
@@ -468,16 +522,7 @@ const Checkout = () => {
     }
 
     setShowAddressForm(false);
-    setAddressForm({
-      label: "Home",
-      houseNumber: "",
-      fullAddress: "",
-      city: "",
-      pincode: "",
-      latitude: undefined,
-      longitude: undefined,
-      placeId: undefined,
-    });
+    resetAddressForm();
   };
 
   const updateBookingDraft = (updates: Partial<BookingDraft>) => {
@@ -1224,6 +1269,7 @@ const Checkout = () => {
           ) : null}
 
           <Button
+            ref={checkoutActionRef}
             className="h-14 w-full bg-[#FB2965] text-base font-semibold hover:bg-[#e02456]"
             onClick={handlePlaceOrder}
             disabled={isPaying || (Boolean(selectedAddress) && !isSelectedAddressServiceable)}
@@ -1240,6 +1286,47 @@ const Checkout = () => {
       </div>
 
       <AnimatePresence>
+        {showStickyCheckoutBar && !showAddressForm && !showAddressPicker && !showScheduleForm ? (
+          <motion.div
+            initial={{ opacity: 0, y: 28 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 28 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="fixed inset-x-0 bottom-0 z-30 px-3 pb-3 pt-2 sm:px-4 xl:px-6"
+          >
+            <div className="mx-auto flex w-full max-w-[1200px] items-center gap-3 rounded-[28px] border border-[#f2d1db] bg-white/96 px-4 py-3 shadow-[0_18px_40px_rgba(15,23,42,0.16)] backdrop-blur-xl">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#98a2b3]">To pay</p>
+                <p className="truncate text-base font-bold text-[#22313f]">{formatCurrency(payNow)}</p>
+                <p className="truncate text-[11px] text-[#667085]">
+                  {selectedAddress
+                    ? !isSelectedAddressServiceable
+                      ? `Available in ${serviceCity} only`
+                      : payMode === "advance"
+                        ? `Advance payment • Balance ${formatCurrency(remainingAfterAdvance)} later`
+                        : `Full payment • ₹${FULL_PAYMENT_DISCOUNT} off applied`
+                    : "Add or select address to continue"}
+                </p>
+              </div>
+              <Button
+                className="h-12 shrink-0 rounded-full bg-[#FB2965] px-5 text-sm font-semibold hover:bg-[#e02456] sm:px-6"
+                onClick={handlePlaceOrder}
+                disabled={isPaying || (Boolean(selectedAddress) && !isSelectedAddressServiceable)}
+              >
+                {selectedAddress
+                  ? !isSelectedAddressServiceable
+                    ? `Available in ${serviceCity} only`
+                    : isPaying
+                      ? "Opening Razorpay..."
+                      : `Pay ${formatCurrency(payNow)}`
+                  : "Add address"}
+              </Button>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {showAddressForm ? (
           <>
             <motion.button
@@ -1247,7 +1334,10 @@ const Checkout = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => { setShowAddressForm(false); setEditingAddressId(null); setAddressForm({ label: "Home", houseNumber: "", fullAddress: "", city: "", pincode: "", latitude: undefined, longitude: undefined, placeId: undefined }); }}
+              onClick={() => {
+                setShowAddressForm(false);
+                resetAddressForm();
+              }}
               className="fixed inset-0 z-40 bg-[#101828]/35 backdrop-blur-[2px]"
             />
             <motion.div
@@ -1255,7 +1345,7 @@ const Checkout = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 32 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
-              className="fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto no-scrollbar rounded-t-[36px] bg-white px-5 pb-8 pt-5 shadow-2xl md:left-1/2 md:top-1/2 md:w-[min(640px,88vw)] md:max-h-[97vh] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[32px] md:px-6 md:pb-8 md:pt-5"
+              className="fixed inset-x-0 bottom-0 z-50 flex max-h-[70vh] flex-col overflow-hidden rounded-t-[36px] bg-white px-5 pb-6 pt-5 shadow-2xl overscroll-contain md:left-1/2 md:top-1/2 md:h-[min(92vh,860px)] md:w-[min(720px,88vw)] md:max-h-none md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-[32px] md:px-6 md:pb-6 md:pt-5"
             >
               <div className="mx-auto mb-4 h-1.5 w-14 rounded-full bg-[#e4e7ec] md:hidden" />
               <div className="flex items-start justify-between gap-4">
@@ -1269,8 +1359,7 @@ const Checkout = () => {
                   type="button"
                   onClick={() => {
                     setShowAddressForm(false);
-                    setEditingAddressId(null);
-                    setAddressForm({ label: "Home", houseNumber: "", fullAddress: "", city: "", pincode: "", latitude: undefined, longitude: undefined, placeId: undefined });
+                    resetAddressForm();
                   }}
                   className="rounded-full bg-[#f4f6fb] p-2 text-[#667085]"
                 >
@@ -1278,21 +1367,25 @@ const Checkout = () => {
                 </button>
               </div>
 
-              <form onSubmit={handleAddAddress} className="mt-6 space-y-5">
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#344054]">Label</label>
-                  <Input
-                    value={addressForm.label}
-                    onChange={(event) => setAddressForm((current) => ({ ...current, label: event.target.value }))}
-                    placeholder="Home"
-                  />
+              <form onSubmit={handleAddAddress} className="mt-6 flex min-h-0 flex-1 flex-col">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-[#344054]">Label</label>
+                    <Input
+                      value={addressForm.label}
+                      onChange={(event) => setAddressForm((current) => ({ ...current, label: event.target.value }))}
+                      placeholder="Home"
+                    />
+                  </div>
+                  <div className="mt-5 min-w-0">
+                    <AddressPicker value={addressForm} onChange={setAddressForm} />
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <AddressPicker value={addressForm} onChange={setAddressForm} />
+                <div className="mt-5 shrink-0 border-t border-[#eef2f6] pt-4">
+                  <Button className="h-12 w-full rounded-2xl bg-[#0B4964] font-semibold hover:bg-[#08384e]">
+                    {editingAddressId ? "Update address" : "Save address"}
+                  </Button>
                 </div>
-                <Button className="mb-2 mt-6 h-12 w-full rounded-2xl bg-[#0B4964] font-semibold hover:bg-[#08384e]">
-                  {editingAddressId ? "Update address" : "Save address"}
-                </Button>
               </form>
             </motion.div>
           </>

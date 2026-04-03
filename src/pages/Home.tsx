@@ -3,6 +3,7 @@ import SEO from "../components/SEO";
 import { CategoryCircles } from "../components/home/CategoryCircles";
 import { OfferBanner } from "../components/home/OfferBanner";
 import { ServiceSection } from "../components/home/ServiceSection";
+import { SupportFab } from "../components/home/SupportFab";
 import { fetchAllServices, fetchHomeSections, HomeSection } from "../lib/services";
 import { getServicesInArea } from "../lib/areas";
 import { Service } from "../types";
@@ -118,6 +119,7 @@ const Home = () => {
           </>
         )}
       </div>
+      <SupportFab />
     </div>
   );
 };
