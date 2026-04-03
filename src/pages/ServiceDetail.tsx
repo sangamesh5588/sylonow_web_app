@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { Badge, Button } from "../components/ui";
 import { readWishlist, saveBookingDraft, toggleWishlist, upsertCartItem } from "../lib/booking";
+import { CheckoutCoupon, calcDiscount, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount } from "../lib/coupons";
 import { formatCurrency } from "../lib/utils";
 import { fetchServiceById, fetchAllServices } from "../lib/services";
 import { Service } from "../types";
@@ -91,23 +92,6 @@ const DETAIL_CONTENT: Record<
   },
 };
 
-const COUPON_OPTIONS = [
-  {
-    code: "PRIVATEHALL",
-    title: "20% discount",
-    subtitle: "Exclusive screening pass",
-    description: "Valid on bookings above 3999",
-    discountPercent: 20,
-  },
-  {
-    code: "SYLONOW10",
-    title: "Flat 10% off",
-    subtitle: "Decor launch benefit",
-    description: "Applies instantly on this package",
-    discountPercent: 10,
-  },
-] as const;
-
 const SIMILARITY_STOP_WORDS = new Set([
   "a",
   "an",
@@ -168,6 +152,7 @@ const ServiceDetail = () => {
   const { isAuthenticated, profile, setShowLoginModal } = useAuth();
   const [service, setService] = useState<Service | null>(null);
   const [allServices, setAllServices] = useState<Service[]>([]);
+  const [coupons, setCoupons] = useState<CheckoutCoupon[]>([]);
   const [loadingService, setLoadingService] = useState(true);
 
   useEffect(() => {
@@ -195,6 +180,22 @@ const ServiceDetail = () => {
     });
     fetchAllServices().then(setAllServices).catch(() => {});
   }, [serviceId]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    fetchActiveCoupons()
+      .then((data) => {
+        if (isActive) setCoupons(data);
+      })
+      .catch(() => {
+        if (isActive) setCoupons([]);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const [activeImage, setActiveImage] = useState(0);
   const [isImageLightboxOpen, setIsImageLightboxOpen] = useState(false);
@@ -261,14 +262,18 @@ const ServiceDetail = () => {
     [timeGroups, selectedTimeGroup]
   );
   const appliedCoupon = useMemo(
-    () => COUPON_OPTIONS.find((coupon) => coupon.code === appliedCouponCode) ?? null,
-    [appliedCouponCode]
+    () => findCoupon(coupons, appliedCouponCode),
+    [appliedCouponCode, coupons]
   );
+  const couponDiscount = useMemo(() => {
+    if (!service || !appliedCoupon) return 0;
+    if (!isCouponAvailableForAmount(appliedCoupon, service.price)) return 0;
+    return calcDiscount(appliedCoupon, service.price);
+  }, [appliedCoupon, service]);
   const finalPrice = useMemo(() => {
     if (!service) return 0;
-    if (!appliedCoupon) return service.price;
-    return Math.round(service.price * (1 - appliedCoupon.discountPercent / 100));
-  }, [appliedCoupon, service]);
+    return Math.max(service.price - couponDiscount, 0);
+  }, [couponDiscount, service]);
   const similarServices = useMemo(
     () => {
       if (!service) return [];
@@ -492,10 +497,16 @@ const ServiceDetail = () => {
       serviceId: service.id,
       date: selectedDate,
       time: selectedTime,
-      price: finalPrice,
+      price: service.price,
     });
 
-    navigate("/checkout");
+    const checkoutParams = new URLSearchParams();
+    if (couponDiscount > 0 && appliedCoupon) {
+      checkoutParams.set("coupon", appliedCoupon.code);
+    }
+
+    const checkoutQuery = checkoutParams.toString();
+    navigate(checkoutQuery ? `/checkout?${checkoutQuery}` : "/checkout");
   };
 
   // Need it fast
@@ -916,45 +927,64 @@ const ServiceDetail = () => {
               <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-white to-transparent md:hidden" />
               <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-white to-transparent md:hidden" />
               <div className="flex gap-3 overflow-x-auto px-4 pb-1 no-scrollbar md:grid md:grid-cols-2 md:px-0">
-              {COUPON_OPTIONS.map((coupon) => {
-                const isApplied = appliedCouponCode === coupon.code;
-                return (
-                  <article
-                    key={coupon.code}
-                    className={`relative w-[82%] shrink-0 overflow-hidden rounded-[24px] border p-4 transition md:w-auto ${
-                      isApplied
-                        ? "border-[#0B4964] bg-[#f5fbff]"
-                        : "border-[#eadfdb] bg-[linear-gradient(135deg,#f5e6ff_0%,#f8efff_58%,#ffffff_100%)]"
-                    }`}
-                  >
-                    <div className="absolute right-0 top-0 h-16 w-16 rounded-bl-[32px] bg-[#0B4964]/8" />
-                    <div className="relative flex h-full flex-col justify-between gap-4">
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#667085]">{coupon.title}</p>
-                        <h4 className="text-lg font-bold leading-6 text-[#22313f]">{coupon.code}</h4>
-                        <div className="inline-flex rounded-full border border-[#eadfdb] bg-white px-3 py-1 text-xs font-semibold text-[#344054]">
-                          {coupon.subtitle}
+                {coupons.map((coupon) => {
+                  const isApplied = appliedCouponCode === coupon.code;
+                  const isAvailable = isCouponAvailableForAmount(coupon, service.price);
+                  const savings = isAvailable ? calcDiscount(coupon, service.price) : 0;
+                  const chipLabel = isAvailable
+                    ? `Save ${formatCurrency(savings)}`
+                    : `Min order ${formatCurrency(coupon.minOrderAmount)}`;
+                  const helperText = coupon.description || (isAvailable
+                    ? "Apply this coupon at checkout."
+                    : `Valid on bookings above ${formatCurrency(coupon.minOrderAmount)}`);
+
+                  return (
+                    <article
+                      key={coupon.code}
+                      className={`relative w-[82%] shrink-0 overflow-hidden rounded-[24px] border p-4 transition md:w-auto ${
+                        isApplied
+                          ? "border-[#0B4964] bg-[#f5fbff]"
+                          : isAvailable
+                            ? "border-[#eadfdb] bg-[linear-gradient(135deg,#f5e6ff_0%,#f8efff_58%,#ffffff_100%)]"
+                            : "border-[#e4e7ec] bg-[#f8fafc]"
+                      }`}
+                    >
+                      <div className="absolute right-0 top-0 h-16 w-16 rounded-bl-[32px] bg-[#0B4964]/8" />
+                      <div className="relative flex h-full flex-col justify-between gap-4">
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#667085]">{coupon.title}</p>
+                          <h4 className="text-lg font-bold leading-6 text-[#22313f]">{coupon.code}</h4>
+                          <div className="inline-flex rounded-full border border-[#eadfdb] bg-white px-3 py-1 text-xs font-semibold text-[#344054]">
+                            {chipLabel}
+                          </div>
+                          <p className="text-xs text-[#667085]">{helperText}</p>
                         </div>
-                        <p className="text-xs text-[#667085]">{coupon.description}</p>
+                        <button
+                          type="button"
+                          disabled={!isAvailable}
+                          onClick={() => {
+                            setAppliedCouponCode(isApplied ? null : coupon.code);
+                            toast.success(isApplied ? "Coupon removed" : `${coupon.code} applied`);
+                          }}
+                          className={`inline-flex w-fit items-center rounded-full px-4 py-2 text-sm font-semibold transition ${
+                            isApplied
+                              ? "bg-[#0B4964] text-white"
+                              : isAvailable
+                                ? "border border-[#0B4964] bg-white text-[#0B4964]"
+                                : "cursor-not-allowed border border-[#d0d5dd] bg-white text-[#98a2b3]"
+                          }`}
+                        >
+                          {isApplied ? "Applied" : isAvailable ? "Apply coupon" : "Not eligible"}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAppliedCouponCode(isApplied ? null : coupon.code);
-                          toast.success(isApplied ? "Coupon removed" : `${coupon.code} applied`);
-                        }}
-                        className={`inline-flex w-fit items-center rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          isApplied
-                            ? "bg-[#0B4964] text-white"
-                            : "border border-[#0B4964] bg-white text-[#0B4964]"
-                        }`}
-                      >
-                        {isApplied ? "Applied" : "Apply coupon"}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    </article>
+                  );
+                })}
+                {coupons.length === 0 ? (
+                  <div className="w-[82%] shrink-0 rounded-[24px] border border-dashed border-[#d0d5dd] bg-[#f8fafc] p-4 text-sm text-[#667085]">
+                    Coupons will appear here when active offers are available.
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>

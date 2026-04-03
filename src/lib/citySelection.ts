@@ -91,6 +91,9 @@ export const setNearMeActive = (active: boolean) => {
   }
 };
 
+/** Bengaluru service radius in km — beyond this we show "not available" */
+export const BENGALURU_SERVICE_RADIUS_KM = 100;
+
 /** Haversine distance in km between two lat/lng points */
 export const distanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371;

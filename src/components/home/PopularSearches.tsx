@@ -72,7 +72,7 @@ export const PopularSearches = () => {
         links: categories,
       },
       {
-        title: "SEO Decoration Keywords",
+        title: "Popular Decoration Searches",
         links: nearMeKeywords.slice(0, 40),
       },
       {

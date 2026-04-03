@@ -4,6 +4,7 @@ import SEO from "../components/SEO";
 import { AnimatePresence, motion } from "motion/react";
 import {
   MapPin,
+  MapPinOff,
   Navigation,
   X,
 } from "lucide-react";
@@ -12,7 +13,7 @@ import { ServiceCard } from "../components/ServiceCard";
 import { Category, Service } from "../types";
 import { CategoryTopSection } from "../components/category/CategoryTopSection";
 import { fetchAllServices, fetchCategories } from "../lib/services";
-import { isNearMeActive, setNearMeActive, readUserCoords, distanceKm } from "../lib/citySelection";
+import { isNearMeActive, setNearMeActive, readUserCoords, distanceKm, BENGALURU_SERVICE_RADIUS_KM } from "../lib/citySelection";
 
 const PRICE_OPTIONS = [
 
@@ -127,6 +128,14 @@ const CategoryPage = () => {
   const [isTopSectionSticky, setIsTopSectionSticky] = useState(false);
   const [nearMe, setNearMe] = useState(() => isNearMeActive() && searchParams.get("nearMe") === "1");
   const userCoords = useMemo(() => readUserCoords(), []);
+
+  // Distance from Bengaluru center — used to detect out-of-service-area
+  const distanceFromBengaluru = useMemo(() => {
+    if (!userCoords) return null;
+    return distanceKm(userCoords.latitude, userCoords.longitude, 12.9250, 77.5938);
+  }, [userCoords]);
+
+  const isOutOfServiceArea = nearMe && distanceFromBengaluru !== null && distanceFromBengaluru > BENGALURU_SERVICE_RADIUS_KM;
 
 
 
@@ -397,56 +406,85 @@ const CategoryPage = () => {
         sortOptions={SORT_OPTIONS}
       />
 
-
-
-      {loading ? (
-        <div className="animate-pulse space-y-2">
-          <div className="h-4 w-28 rounded-full bg-[#e8eaed]" />
-          <div className="h-7 w-64 rounded-full bg-[#e8eaed]" />
-        </div>
-      ) : (
-        <div className="flex items-center justify-between gap-3">
-
-          <div>
-
-            <p className="text-sm font-medium text-[#fb2965]">{filteredServices.length} curated options</p>
-
-            <h1 className="text-2xl font-bold tracking-tight text-[#0B4964]">{selectedCategory} setups near you</h1>
-
+      {isOutOfServiceArea ? (
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col items-center justify-center py-16 text-center px-4"
+        >
+          <div className="w-20 h-20 rounded-full bg-[#fff0f5] flex items-center justify-center mb-5">
+            <MapPinOff size={36} className="text-[#FB2965]" />
           </div>
-
-          <div className="hidden md:flex items-center gap-2">
-            {nearMe ? (
-              <div className="flex items-center gap-2 rounded-full bg-[#fff0f5] px-4 py-2 text-sm text-[#FB2965] shadow-sm ring-1 ring-[#FB2965]/20">
-                <Navigation size={14} />
-                Near Me
-              </div>
-            ) : selectedLocation !== "all" ? (
-              <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm text-[#0B4964] shadow-sm ring-1 ring-[#eadfdb]">
-                <MapPin size={14} />
-                {selectedLocation}
-              </div>
-            ) : null}
+          <h2 className="text-2xl font-bold text-[#0B4964] tracking-tight">Not available in your area</h2>
+          <p className="mt-3 text-sm leading-7 text-[#667085] max-w-sm">
+            Sylonow currently operates only in <span className="font-semibold text-[#0B4964]">Bengaluru</span>.
+            {distanceFromBengaluru ? ` You are about ${Math.round(distanceFromBengaluru)} km away.` : ""}
+          </p>
+          <p className="mt-1 text-sm text-[#98a2b3] max-w-sm">
+            We're expanding soon — stay tuned!
+          </p>
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <Button
+              onClick={() => {
+                setNearMeActive(false);
+                setNearMe(false);
+                setDraftNearMe(false);
+                const nextParams = new URLSearchParams(searchParams);
+                nextParams.delete("nearMe");
+                navigate(`/category/${encodeURIComponent(selectedCategory)}${nextParams.toString() ? `?${nextParams.toString()}` : ""}`, { replace: true });
+              }}
+            >
+              Browse Bengaluru setups
+            </Button>
           </div>
-
-        </div>
-      )}
-
+        </motion.div>
+      ) : null}
 
 
-      {loading ? (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-[24px] overflow-hidden bg-[#f4f6f8]">
-              <div className="aspect-[4/3] bg-[#e8eaed]" />
-              <div className="p-4 space-y-2">
-                <div className="h-4 bg-[#e8eaed] rounded-full w-3/4" />
-                <div className="h-3 bg-[#e8eaed] rounded-full w-1/2" />
+
+      {!isOutOfServiceArea && (
+        <>
+          {loading ? (
+            <div className="animate-pulse space-y-2">
+              <div className="h-4 w-28 rounded-full bg-[#e8eaed]" />
+              <div className="h-7 w-64 rounded-full bg-[#e8eaed]" />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-[#fb2965]">{filteredServices.length} curated options</p>
+                <h1 className="text-2xl font-bold tracking-tight text-[#0B4964]">{selectedCategory} setups near you</h1>
+              </div>
+              <div className="hidden md:flex items-center gap-2">
+                {nearMe ? (
+                  <div className="flex items-center gap-2 rounded-full bg-[#fff0f5] px-4 py-2 text-sm text-[#FB2965] shadow-sm ring-1 ring-[#FB2965]/20">
+                    <Navigation size={14} />
+                    Near Me
+                  </div>
+                ) : selectedLocation !== "all" ? (
+                  <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm text-[#0B4964] shadow-sm ring-1 ring-[#eadfdb]">
+                    <MapPin size={14} />
+                    {selectedLocation}
+                  </div>
+                ) : null}
               </div>
             </div>
-          ))}
-        </div>
-      ) : filteredServices.length > 0 ? (
+          )}
+
+          {loading ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="animate-pulse rounded-[24px] overflow-hidden bg-[#f4f6f8]">
+                  <div className="aspect-[4/3] bg-[#e8eaed]" />
+                  <div className="p-4 space-y-2">
+                    <div className="h-4 bg-[#e8eaed] rounded-full w-3/4" />
+                    <div className="h-3 bg-[#e8eaed] rounded-full w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredServices.length > 0 ? (
 
         <motion.div layout className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
 
@@ -496,6 +534,8 @@ const CategoryPage = () => {
 
         </motion.div>
 
+      )}
+        </>
       )}
 
 
