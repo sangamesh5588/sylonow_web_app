@@ -4,11 +4,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { sendOtp, verifyOtp } from '../services/msg91';
 
+const OTP_LENGTH = 4;
+const EMPTY_OTP = Array.from({ length: OTP_LENGTH }, () => '');
+
 export const LoginModal = () => {
   const { showLoginModal, setShowLoginModal, refreshProfile } = useAuth();
   const [step, setStep] = useState<'phone' | 'otp' | 'name'>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '']);
+  const [otp, setOtp] = useState(EMPTY_OTP);
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
@@ -56,7 +59,7 @@ export const LoginModal = () => {
     newOtp[index] = value.slice(-1);
     setOtp(newOtp);
     setError('');
-    if (value && index < 3) otpRefs.current[index + 1]?.focus();
+    if (value && index < OTP_LENGTH - 1) otpRefs.current[index + 1]?.focus();
   };
 
   const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
@@ -66,12 +69,12 @@ export const LoginModal = () => {
   };
 
   const handleOtpPaste = (e: React.ClipboardEvent) => {
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 4);
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH);
     if (pasted.length > 0) {
       const newOtp = [...otp];
-      pasted.split('').forEach((d, i) => { if (i < 4) newOtp[i] = d; });
+      pasted.split('').forEach((d, i) => { if (i < OTP_LENGTH) newOtp[i] = d; });
       setOtp(newOtp);
-      otpRefs.current[Math.min(pasted.length, 3)]?.focus();
+      otpRefs.current[Math.min(pasted.length, OTP_LENGTH - 1)]?.focus();
     }
     e.preventDefault();
   };
@@ -79,7 +82,7 @@ export const LoginModal = () => {
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const otpValue = otp.join('');
-    if (otpValue.length !== 4) { setError('Enter the 4-digit OTP'); return; }
+    if (otpValue.length !== OTP_LENGTH) { setError(`Enter the ${OTP_LENGTH}-digit OTP`); return; }
     setLoading(true);
     setError('');
     try {
@@ -111,7 +114,7 @@ export const LoginModal = () => {
     setError('');
     try {
       await sendOtp(phoneNumber);
-      setOtp(['', '', '', '']);
+      setOtp(EMPTY_OTP);
       startResendTimer();
       otpRefs.current[0]?.focus();
     } catch (err: any) {
@@ -146,7 +149,7 @@ export const LoginModal = () => {
   const resetModal = () => {
     setStep('phone');
     setPhoneNumber('');
-    setOtp(['', '', '', '']);
+    setOtp(EMPTY_OTP);
     setName('');
     setError('');
     setResendTimer(0);
@@ -164,7 +167,7 @@ export const LoginModal = () => {
             <X size={22} />
           </button>
           {step === 'otp' && (
-            <button onClick={() => { setStep('phone'); setOtp(['','','','','','']); setError(''); }}
+            <button onClick={() => { setStep('phone'); setOtp(EMPTY_OTP); setError(''); }}
               className="absolute top-4 left-4 text-white/80 hover:text-white transition-colors">
               <ArrowLeft size={22} />
             </button>
@@ -196,7 +199,7 @@ export const LoginModal = () => {
               </div>
               <div>
                 <p className="text-center text-sm text-gray-500 mb-4">
-                  We&apos;ll send a 4-digit OTP to verify your number
+                  We&apos;ll send a {OTP_LENGTH}-digit OTP to verify your number
                 </p>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Phone Number</label>
                 <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#FB2965]/30 focus-within:border-[#FB2965]">
@@ -231,7 +234,7 @@ export const LoginModal = () => {
                 <p className="font-semibold text-gray-800">+91 {phoneNumber}</p>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3 text-center">Enter 4-digit OTP</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-3 text-center">Enter {OTP_LENGTH}-digit OTP</label>
                 <div className="flex gap-2 justify-center" onPaste={handleOtpPaste}>
                   {otp.map((digit, i) => (
                     <input
@@ -254,7 +257,7 @@ export const LoginModal = () => {
               {error && <p className="text-sm text-red-500 text-center">{error}</p>}
               <button
                 type="submit"
-                disabled={loading || otp.join('').length !== 4}
+                disabled={loading || otp.join('').length !== OTP_LENGTH}
                 className="w-full py-3.5 bg-[#FB2965] text-white font-semibold rounded-xl hover:bg-[#e02456] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Verifying...' : 'Verify OTP'}

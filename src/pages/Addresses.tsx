@@ -5,13 +5,14 @@ import { motion } from "motion/react";
 import { toast } from "sonner";
 import { useAuth } from "../contexts/AuthContext";
 import { readAddresses, writeAddresses } from "../lib/booking";
+import { fetchUserAddresses } from "../lib/addresses";
 import { Address } from "../types";
 import { Button, Card, Input } from "../components/ui";
 import { AddressDraft, AddressPicker } from "../components/address/AddressPicker";
 
 const Addresses = () => {
   const navigate = useNavigate();
-  const { profile, isAuthenticated, setShowLoginModal } = useAuth();
+  const { profile, isAuthenticated, setShowLoginModal, user } = useAuth();
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -32,9 +33,32 @@ const Addresses = () => {
       return;
     }
 
-    const userAddresses = readAddresses(profile?.phone_number);
-    setAddresses(userAddresses);
-  }, [profile, isAuthenticated, navigate, setShowLoginModal]);
+    let isActive = true;
+    const localAddresses = readAddresses(profile?.phone_number);
+    setAddresses(localAddresses);
+
+    if (!user?.id) {
+      return () => {
+        isActive = false;
+      };
+    }
+
+    fetchUserAddresses(user.id)
+      .then((dbAddresses) => {
+        if (!isActive || dbAddresses.length === 0) return;
+        setAddresses(dbAddresses);
+        if (profile?.phone_number) {
+          writeAddresses(profile.phone_number, dbAddresses);
+        }
+      })
+      .catch(() => {
+        // Keep local addresses as fallback when DB fetch fails.
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [profile?.phone_number, isAuthenticated, navigate, setShowLoginModal, user?.id]);
 
   const resetForm = () => {
     setForm({

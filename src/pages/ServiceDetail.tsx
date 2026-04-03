@@ -23,7 +23,7 @@ import {
 import { toast } from "sonner";
 import { Badge, Button } from "../components/ui";
 import { readWishlist, saveBookingDraft, toggleWishlist, upsertCartItem } from "../lib/booking";
-import { CheckoutCoupon, calcDiscount, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount } from "../lib/coupons";
+import { CheckoutCoupon, calcDiscount, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, sortCouponsForAmount } from "../lib/coupons";
 import { formatCurrency } from "../lib/utils";
 import { fetchServiceById, fetchAllServices } from "../lib/services";
 import { Service } from "../types";
@@ -264,6 +264,10 @@ const ServiceDetail = () => {
   const appliedCoupon = useMemo(
     () => findCoupon(coupons, appliedCouponCode),
     [appliedCouponCode, coupons]
+  );
+  const sortedCoupons = useMemo(
+    () => sortCouponsForAmount(coupons, service?.price ?? 0),
+    [coupons, service?.price]
   );
   const couponDiscount = useMemo(() => {
     if (!service || !appliedCoupon) return 0;
@@ -927,7 +931,7 @@ const ServiceDetail = () => {
               <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-white to-transparent md:hidden" />
               <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-white to-transparent md:hidden" />
               <div className="flex gap-3 overflow-x-auto px-4 pb-1 no-scrollbar md:grid md:grid-cols-2 md:px-0">
-                {coupons.map((coupon) => {
+                {sortedCoupons.map((coupon) => {
                   const isApplied = appliedCouponCode === coupon.code;
                   const isAvailable = isCouponAvailableForAmount(coupon, service.price);
                   const savings = isAvailable ? calcDiscount(coupon, service.price) : 0;

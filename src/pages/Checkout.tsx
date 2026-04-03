@@ -21,8 +21,9 @@ import { Button, Card, Input } from "../components/ui";
 import { supabase } from "../lib/supabase";
 import QRCode from "qrcode";
 import { BookingDraft, clearBookingDraft, createOrder, readAddresses, readBookingDraft, saveBookingDraft, writeAddresses } from "../lib/booking";
-import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount } from "../lib/coupons";
+import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount, getCouponAvailabilityMessage, sortCouponsForAmount } from "../lib/coupons";
 import { createRazorpayOrder, openRazorpayCheckout, verifyRazorpayPayment } from "../lib/razorpay";
+import { fetchUserAddresses } from "../lib/addresses";
 import { formatCurrency } from "../lib/utils";
 import { fetchServiceById, fetchPricingLogic, getAdvanceAmount, PricingTier } from "../lib/services";
 import { useAuth } from "../contexts/AuthContext";
@@ -143,7 +144,7 @@ const getMobileAddressPreview = (address?: string | null) => {
 const Checkout = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { isAuthenticated, setShowLoginModal, profile } = useAuth();
+  const { isAuthenticated, setShowLoginModal, profile, user } = useAuth();
   const requiresLogin = !isAuthenticated || !profile?.phone_number;
   const initialDraft = readBookingDraft();
   const [bookingDraft, setBookingDraft] = useState<BookingDraft | null>(initialDraft);
@@ -236,12 +237,42 @@ const Checkout = () => {
       return;
     }
 
-    const nextAddresses = readAddresses(profile?.phone_number);
-    setAddresses(nextAddresses);
-    if (nextAddresses[0]) {
-      setSelectedAddressId(nextAddresses[0].id);
+    let isActive = true;
+    const localAddresses = readAddresses(profile?.phone_number);
+
+    const applyAddresses = (nextAddresses: Address[]) => {
+      if (!isActive) return;
+      setAddresses(nextAddresses);
+      setSelectedAddressId((current) => {
+        if (current && nextAddresses.some((item) => item.id === current)) return current;
+        return nextAddresses[0]?.id ?? "";
+      });
+    };
+
+    applyAddresses(localAddresses);
+
+    if (!user?.id) {
+      return () => {
+        isActive = false;
+      };
     }
-  }, [bookingDraft, requiresLogin, service, profile?.phone_number]);
+
+    fetchUserAddresses(user.id)
+      .then((dbAddresses) => {
+        if (!isActive || dbAddresses.length === 0) return;
+        applyAddresses(dbAddresses);
+        if (profile?.phone_number) {
+          writeAddresses(profile.phone_number, dbAddresses);
+        }
+      })
+      .catch(() => {
+        // Keep local addresses as fallback when DB fetch fails.
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [bookingDraft, requiresLogin, service, profile?.phone_number, user?.id]);
 
   useEffect(() => {
     if (!requiresLogin && pendingAddressAction) {
@@ -324,6 +355,9 @@ const Checkout = () => {
   const selectedAddressCity = selectedAddress?.city ? normalizeCityName(selectedAddress.city) : "";
   const isSelectedAddressServiceable =
     !selectedAddress || !selectedAddressCity || selectedAddressCity === serviceCity;
+  const serviceabilityTitle = `Service currently available in ${serviceCity}`;
+  const serviceabilityDescription = `This setup is currently available for bookings within ${serviceCity}. Please choose an address in ${serviceCity} or contact our team to check availability for your location.`;
+  const serviceabilityCtaLabel = `Choose an address in ${serviceCity}`;
   const mobileAddressPreview = getMobileAddressPreview(selectedAddress?.fullAddress);
   const selectedTimeOptions =
     timeGroups.find((group) => group.label === selectedTimeGroup)?.slots ?? timeGroups[timeGroups.length - 1]?.slots ?? [];
@@ -331,6 +365,7 @@ const Checkout = () => {
     dateOptions.find((option) => option.date === bookingDraft?.date)?.display ?? bookingDraft?.date ?? "";
   const appliedCoupon = useMemo(() => findCoupon(coupons, appliedCouponCode), [coupons, appliedCouponCode]);
   const baseServicePrice = bookingDraft?.price ?? service?.price ?? 0;
+  const sortedCoupons = useMemo(() => sortCouponsForAmount(coupons, baseServicePrice), [coupons, baseServicePrice]);
   const originalPrice = service?.originalPrice ?? baseServicePrice;
   const priceDiscount = Math.max(originalPrice - baseServicePrice, 0);
   const couponDiscount = appliedCoupon ? calcDiscount(appliedCoupon, baseServicePrice) : 0;
@@ -518,7 +553,7 @@ const Checkout = () => {
     }
 
     if (normalizeCityName(addressForm.city) !== serviceCity) {
-      toast.info(`This setup is currently available in ${serviceCity}. You can keep this address saved and switch to a supported city anytime.`);
+      toast.info(`This setup is currently accepting bookings in ${serviceCity}. You can save this address and switch to a supported location anytime.`);
     }
 
     setShowAddressForm(false);
@@ -557,7 +592,7 @@ const Checkout = () => {
     }
 
     if (!isCouponAvailableForAmount(coupon, baseServicePrice)) {
-      toast.error(`Coupon valid on orders above ${formatCurrency(coupon.minOrderAmount)}`);
+      toast.error(getCouponAvailabilityMessage(coupon));
       return;
     }
 
@@ -587,7 +622,7 @@ const Checkout = () => {
     const coupon = findCoupon(coupons, code);
     if (!coupon) return;
     if (!isCouponAvailableForAmount(coupon, baseServicePrice)) {
-      toast.error(`Coupon valid on orders above ${formatCurrency(coupon.minOrderAmount)}`);
+      toast.error(getCouponAvailabilityMessage(coupon));
       return;
     }
     setAppliedCouponCode(code);
@@ -617,7 +652,7 @@ const Checkout = () => {
 
     if (!profile?.phone_number || !bookingDraft) return;
     if (!isSelectedAddressServiceable) {
-      toast.error(`This setup is currently available only in ${serviceCity}. Please select a supported address to continue.`);
+      toast.error(`Please select an address in ${serviceCity} to continue with this booking.`);
       return;
     }
 
@@ -792,7 +827,7 @@ const Checkout = () => {
             <CouponSection
               couponInput={couponInput}
               appliedCouponCode={appliedCouponCode}
-              coupons={coupons}
+              coupons={sortedCoupons}
               appliedCoupon={appliedCoupon}
               discountAmount={discountAmount}
               onCouponInputChange={setCouponInput}
@@ -984,7 +1019,7 @@ const Checkout = () => {
             <CouponSection
               couponInput={couponInput}
               appliedCouponCode={appliedCouponCode}
-              coupons={coupons}
+              coupons={sortedCoupons}
               appliedCoupon={appliedCoupon}
               discountAmount={discountAmount}
               onCouponInputChange={setCouponInput}
@@ -1236,33 +1271,33 @@ const Checkout = () => {
           </Card>
 
           {selectedAddress && !isSelectedAddressServiceable ? (
-            <Card className="space-y-4 border border-[#fed7aa] bg-[#fffaf5] p-4 shadow-none">
+            <Card className="space-y-4 border border-[#e8ddd2] bg-[#fffdfa] p-4 shadow-none">
               <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#fff1e8] text-[#e07b00]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#f5efe8] text-[#8b5e34]">
                   <MapPin size={18} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#9a3412]">
-                    This setup is not live in {selectedAddressCity} yet
+                  <p className="text-sm font-semibold text-[#4a3a2a]">
+                    {serviceabilityTitle}
                   </p>
-                  <p className="mt-1 text-sm leading-6 text-[#7c5b42]">
-                    We currently fulfil this decoration in {serviceCity}. You can save this address, switch to a supported city, or talk to our team for a custom availability check.
+                  <p className="mt-1 text-sm leading-6 text-[#6b5a4d]">
+                    {serviceabilityDescription}
                   </p>
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Button
                   variant="outline"
-                  className="h-11 rounded-full border-[#f2c7a7] text-[#9a3412] hover:border-[#e07b00]"
+                  className="h-11 rounded-full border-[#d7c1ad] text-[#6b4f37] hover:border-[#9a7854] hover:bg-[#faf6f1]"
                   onClick={() => setShowAddressPicker(true)}
                 >
-                  Change address
+                  Choose another address
                 </Button>
                 <Button
-                  className="h-11 rounded-full bg-[#FB2965] hover:bg-[#e02456]"
+                  className="h-11 rounded-full bg-[#0B4964] hover:bg-[#08384e]"
                   onClick={() => window.location.assign(`tel:${COMPANY_CONTACT.phone.replace(/\s+/g, "")}`)}
                 >
-                  Talk to support
+                  Contact support
                 </Button>
               </div>
             </Card>
@@ -1270,13 +1305,17 @@ const Checkout = () => {
 
           <Button
             ref={checkoutActionRef}
-            className="h-14 w-full bg-[#FB2965] text-base font-semibold hover:bg-[#e02456]"
+            className={`h-14 w-full text-base font-semibold ${
+              selectedAddress && !isSelectedAddressServiceable
+                ? "bg-[#e8edf1] text-[#526070] hover:bg-[#dfe6eb] disabled:opacity-100"
+                : "bg-[#FB2965] hover:bg-[#e02456]"
+            }`}
             onClick={handlePlaceOrder}
             disabled={isPaying || (Boolean(selectedAddress) && !isSelectedAddressServiceable)}
           >
             {selectedAddress
               ? !isSelectedAddressServiceable
-                ? `Available in ${serviceCity} only`
+                ? serviceabilityCtaLabel
                 : isPaying
                   ? "Opening Razorpay..."
                   : `Pay ${formatCurrency(payNow)} now`
@@ -1301,7 +1340,7 @@ const Checkout = () => {
                 <p className="truncate text-[11px] text-[#667085]">
                   {selectedAddress
                     ? !isSelectedAddressServiceable
-                      ? `Available in ${serviceCity} only`
+                      ? `Bookings for this setup are currently available in ${serviceCity}`
                       : payMode === "advance"
                         ? `Advance payment • Balance ${formatCurrency(remainingAfterAdvance)} later`
                         : `Full payment • ₹${FULL_PAYMENT_DISCOUNT} off applied`
@@ -1309,13 +1348,17 @@ const Checkout = () => {
                 </p>
               </div>
               <Button
-                className="h-12 shrink-0 rounded-full bg-[#FB2965] px-5 text-sm font-semibold hover:bg-[#e02456] sm:px-6"
+                className={`h-12 shrink-0 rounded-full px-5 text-sm font-semibold sm:px-6 ${
+                  selectedAddress && !isSelectedAddressServiceable
+                    ? "bg-[#e8edf1] text-[#526070] hover:bg-[#dfe6eb] disabled:opacity-100"
+                    : "bg-[#FB2965] hover:bg-[#e02456]"
+                }`}
                 onClick={handlePlaceOrder}
                 disabled={isPaying || (Boolean(selectedAddress) && !isSelectedAddressServiceable)}
               >
                 {selectedAddress
                   ? !isSelectedAddressServiceable
-                    ? `Available in ${serviceCity} only`
+                    ? serviceabilityCtaLabel
                     : isPaying
                       ? "Opening Razorpay..."
                       : `Pay ${formatCurrency(payNow)}`

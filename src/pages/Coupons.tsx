@@ -1,9 +1,9 @@
 import { ChevronLeft, Percent, TicketPercent } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Card, Button } from "../components/ui";
-import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount } from "../lib/coupons";
+import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount, getCouponAvailabilityMessage, sortCouponsForAmount } from "../lib/coupons";
 import { formatCurrency } from "../lib/utils";
 
 const Coupons = () => {
@@ -14,7 +14,8 @@ const Coupons = () => {
   const appliedCouponCode = searchParams.get("coupon");
 
   const [coupons, setCoupons] = useState<CheckoutCoupon[]>([]);
-  const appliedCoupon = findCoupon(coupons, appliedCouponCode);
+  const sortedCoupons = useMemo(() => sortCouponsForAmount(coupons, amount), [coupons, amount]);
+  const appliedCoupon = findCoupon(sortedCoupons, appliedCouponCode);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -25,7 +26,7 @@ const Coupons = () => {
     const nextCoupon = findCoupon(coupons, code);
     if (!nextCoupon) return;
     if (!isCouponAvailableForAmount(nextCoupon, amount)) {
-      toast.error(`Coupon valid on orders above ${formatCurrency(nextCoupon.minOrderAmount)}`);
+      toast.error(getCouponAvailabilityMessage(nextCoupon));
       return;
     }
 
@@ -62,7 +63,7 @@ const Coupons = () => {
       </Card>
 
       <div className="space-y-3">
-        {coupons.map((coupon) => {
+        {sortedCoupons.map((coupon) => {
           const isApplied = appliedCoupon?.code === coupon.code;
           const isAvailable = isCouponAvailableForAmount(coupon, amount);
           const savings = calcDiscount(coupon, amount);
