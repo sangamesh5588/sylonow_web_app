@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { Button, Card, Input } from "../components/ui";
 import { supabase } from "../lib/supabase";
 import QRCode from "qrcode";
-import { BookingDraft, clearBookingDraft, createOrder, readAddresses, readBookingDraft, saveBookingDraft, writeAddresses } from "../lib/booking";
+import { BookingDraft, clearBookingDraft, createOrder, readAddresses, readBookingDraft, removeCartItem, saveBookingDraft, writeAddresses } from "../lib/booking";
 import { CheckoutCoupon, fetchActiveCoupons, findCoupon, isCouponAvailableForAmount, calcDiscount, getCouponAvailabilityMessage, sortCouponsForAmount } from "../lib/coupons";
 import { createRazorpayOrder, openRazorpayCheckout, verifyRazorpayPayment } from "../lib/razorpay";
 import { fetchUserAddresses } from "../lib/addresses";
@@ -32,6 +32,7 @@ import { AddressDraft, AddressPicker } from "../components/address/AddressPicker
 import { normalizeCityName } from "../lib/citySelection";
 import { COMPANY_CONTACT } from "../lib/siteContent";
 import { parseNoticeHours, getAvailableDates, getAvailableSlotsForDate } from "../lib/bookingAvailability";
+import { syncAbandonedCartSnapshot } from "../lib/abandonedCart";
 
 const CouponSection = ({
   couponInput,
@@ -721,6 +722,19 @@ const Checkout = () => {
         "confirmed",
         orderId
       );
+
+      const remainingCartItems = removeCartItem({
+        serviceId: service.id,
+        date: bookingDraft.date,
+        time: bookingDraft.time,
+      });
+
+      await syncAbandonedCartSnapshot({
+        items: remainingCartItems,
+        phoneNumber: profile.phone_number,
+        fullName: profile.full_name ?? null,
+        status: remainingCartItems.length === 0 ? "converted" : "active",
+      });
 
       clearBookingDraft();
       toast.success("Payment successful! Booking confirmed.");

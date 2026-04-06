@@ -5,6 +5,7 @@ import { Footer } from "./Footer";
 import { Toaster } from "sonner";
 import { AnimatePresence, motion } from "motion/react";
 import { PopularSearches } from "../home/PopularSearches";
+import { CartSync } from "./CartSync";
 
 export const Layout = () => {
   const location = useLocation();
@@ -38,6 +39,7 @@ export const Layout = () => {
         <Footer />
       </div>
       {showBottomNav && <BottomNav />}
+      <CartSync />
       <Toaster
         position="top-right"
         theme="light"
