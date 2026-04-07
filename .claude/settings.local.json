@@ -1,6 +1,30 @@
 {
+  "permissions": {
+    "allow": [
+      "mcp__supabase__get_storage_config",
+      "mcp__supabase__update_storage_config",
+      "mcp__vercel__list_teams",
+      "mcp__vercel__list_projects",
+      "mcp__vercel__get_project",
+      "Bash(cd \"/Users/arbazkudekar/Downloads/React Projects/sylonow_web_app\" && vercel whoami 2>&1)",
+      "Bash(which npx && npx vercel --version 2>&1)",
+      "mcp__vercel__deploy_to_vercel",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in d.get\\(''mcpServers'',{}\\).items\\(\\) if ''vercel'' in k.lower\\(\\)}, indent=2\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); servers=d.get\\(''mcpServers'',{}\\); [print\\(k,''->'',json.dumps\\(v\\)[:200]\\) for k,v in servers.items\\(\\) if ''vercel'' in k.lower\\(\\) or ''vercel'' in str\\(v\\).lower\\(\\)]\")",
+      "Bash(ls ~/.claude/ && cat ~/.claude/settings.json 2>/dev/null | python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('mcpServers',{}\\), indent=2\\)[:500]\\)\" 2>/dev/null)",
+      "Bash(echo No mcpServers in config:*)",
+      "Bash(echo No Vercel env vars:*)",
+      "mcp__vercel__get_deployment_build_logs",
+      "Bash(cd:*)",
+      "Bash(cd \"/Users/arbazkudekar/Downloads/React Projects/sylonow_web_app\" && git push origin main 2>&1)",
+      "Bash(cd \"/Users/arbazkudekar/Downloads/React Projects/sylonow_web_app\" && git pull origin main --rebase 2>&1)",
+      "Bash(cd \"/Users/arbazkudekar/Downloads/React Projects/sylonow_web_app\" && git stash && git pull origin main --rebase 2>&1)",
+      "mcp__vercel__get_deployment",
+      "mcp__vercel__list_deployments"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
