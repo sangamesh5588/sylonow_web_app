@@ -14,6 +14,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { readWishlist, toggleWishlist } from "../lib/booking";
 import { formatCurrency } from "../lib/utils";
 import { fetchAllServices } from "../lib/services";
+import { getOptimizedImageUrl } from "../lib/images";
 import { Service } from "../types";
 import { Button, Card } from "../components/ui";
 
@@ -104,10 +105,17 @@ const Wishlist = () => {
                 >
                   <div className="relative aspect-[4/3] overflow-hidden">
                     <img
-                      src={service.images[0]}
+                      src={getOptimizedImageUrl(service.images[0], {
+                        width: 720,
+                        height: 540,
+                        quality: 80,
+                        resize: "cover",
+                      })}
                       alt={service.title}
                       className="h-full w-full object-cover"
                       referrerPolicy="no-referrer"
+                      loading="lazy"
+                      decoding="async"
                     />
                     <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3">
                       <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#0B4964] backdrop-blur">

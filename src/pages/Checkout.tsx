@@ -33,6 +33,7 @@ import { normalizeCityName } from "../lib/citySelection";
 import { COMPANY_CONTACT } from "../lib/siteContent";
 import { parseNoticeHours, getAvailableDates, getAvailableSlotsForDate } from "../lib/bookingAvailability";
 import { syncAbandonedCartSnapshot } from "../lib/abandonedCart";
+import { getOptimizedImageUrl } from "../lib/images";
 
 const CouponSection = ({
   couponInput,
@@ -787,10 +788,17 @@ const Checkout = () => {
 
               <div className="h-32 w-32 shrink-0 overflow-hidden rounded-[24px] bg-[#f8fafc] sm:h-36 sm:w-36">
                 <img
-                  src={service.images[0]}
+                  src={getOptimizedImageUrl(service.images[0], {
+                    width: 360,
+                    height: 360,
+                    quality: 78,
+                    resize: "cover",
+                  })}
                   alt={service.title}
                   className="h-full w-full object-cover"
                   referrerPolicy="no-referrer"
+                  loading="lazy"
+                  decoding="async"
                 />
               </div>
             </div>

@@ -29,6 +29,7 @@ import { fetchServiceById, fetchAllServices } from "../lib/services";
 import { Service } from "../types";
 import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
+import { getOptimizedImageUrl, getResponsiveImageProps } from "../lib/images";
 
 import { parseNoticeHours, getAvailableDates, getAvailableSlotsForDate } from "../lib/bookingAvailability";
 
@@ -571,6 +572,21 @@ const ServiceDetail = () => {
     }
   };
 
+  const activeImageUrl = service.images[activeImage] ?? service.images[0];
+  const activeHeroImage = getResponsiveImageProps(activeImageUrl, {
+    widths: [640, 960, 1280, 1600],
+    height: 1200,
+    quality: 82,
+    resize: "cover",
+    sizes: "(max-width: 768px) 100vw, 50vw",
+  });
+  const activeLightboxImage = getOptimizedImageUrl(activeImageUrl, {
+    width: 1800,
+    height: 1800,
+    quality: 85,
+    resize: "contain",
+  });
+
   return (
     <div className="space-y-8 pb-32 pt-[68px] md:pt-0 md:pb-14">
       <SEO
@@ -613,7 +629,9 @@ const ServiceDetail = () => {
             <AnimatePresence initial={false} mode="wait">
               <motion.img
                 key={`${service.id}-${activeImage}`}
-                src={service.images[activeImage] ?? service.images[0]}
+                src={activeHeroImage.src}
+                srcSet={activeHeroImage.srcSet}
+                sizes={activeHeroImage.sizes}
                 alt={service.title}
                 initial={{ opacity: 0, x: imageDirection >= 0 ? 34 : -34 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -724,7 +742,14 @@ const ServiceDetail = () => {
                   activeImage === index ? "border-[#0B4964]" : "border-transparent"
                 }`}
               >
-                <img src={image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                <img
+                  src={getOptimizedImageUrl(image, { width: 240, height: 240, quality: 72, resize: "cover" })}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                  decoding="async"
+                />
               </button>
             ))}
           </div>
@@ -1099,10 +1124,17 @@ const ServiceDetail = () => {
                   <article className="space-y-2">
                     <div className="relative aspect-square overflow-hidden rounded-[22px] bg-[#f8fafc]">
                       <img
-                        src={item.images[0]}
+                        src={getOptimizedImageUrl(item.images[0], {
+                          width: 480,
+                          height: 480,
+                          quality: 80,
+                          resize: "cover",
+                        })}
                         alt={item.title}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                         referrerPolicy="no-referrer"
+                        loading="lazy"
+                        decoding="async"
                       />
                       <button
                         type="button"
@@ -1374,10 +1406,17 @@ const ServiceDetail = () => {
               <article className="space-y-2">
                 <div className="relative aspect-square overflow-hidden rounded-[22px] bg-[#f8fafc]">
                   <img
-                    src={item.images[0]}
+                    src={getOptimizedImageUrl(item.images[0], {
+                      width: 480,
+                      height: 480,
+                      quality: 80,
+                      resize: "cover",
+                    })}
                     alt={item.title}
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <button
                     type="button"
@@ -1517,10 +1556,11 @@ const ServiceDetail = () => {
                   className="flex h-full w-full items-center justify-center"
                 >
                   <img
-                    src={service.images[activeImage] ?? service.images[0]}
+                    src={activeLightboxImage}
                     alt={service.title}
                     className="max-h-[84vh] w-auto max-w-full rounded-[28px] object-contain shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
                     referrerPolicy="no-referrer"
+                    decoding="async"
                   />
                 </motion.div>
 

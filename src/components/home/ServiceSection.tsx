@@ -7,6 +7,7 @@ import { ChevronRight, Heart, Star } from "lucide-react";
 import { toast } from "sonner";
 import { readWishlist, toggleWishlist } from "../../lib/booking";
 import { useAuth } from "../../contexts/AuthContext";
+import { getResponsiveImageProps } from "../../lib/images";
 
 interface ServiceSectionProps {
   title: string;
@@ -41,6 +42,14 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
     toast.success(nowWishlisted ? "Added to wishlist" : "Removed from wishlist");
   };
 
+  const imageProps = getResponsiveImageProps(service.images[0], {
+    widths: [160, 240, 320, 480, 640],
+    height: 640,
+    quality: 80,
+    resize: "cover",
+    sizes: "(max-width: 768px) 160px, 280px",
+  });
+
   return (
     <motion.div
       key={service.id}
@@ -57,7 +66,9 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
               <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
             )}
             <img
-              src={service.images[0]}
+              src={imageProps.src}
+              srcSet={imageProps.srcSet}
+              sizes={imageProps.sizes}
               alt={service.title}
               className={`w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-700 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
               loading={index === 0 ? "eager" : "lazy"}

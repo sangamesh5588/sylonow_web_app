@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { supabase } from "../../lib/supabase";
+import { getResponsiveImageProps } from "../../lib/images";
 
 interface Category {
   id: string;
@@ -15,6 +16,13 @@ const PLACEHOLDER_IMAGE =
 
 const CategoryCard = ({ cat, index }: { cat: Category; index: number }) => {
   const [imgLoaded, setImgLoaded] = useState(false);
+  const imageProps = getResponsiveImageProps(cat.image_url || PLACEHOLDER_IMAGE, {
+    widths: [120, 180, 240, 320],
+    height: 420,
+    quality: 78,
+    resize: "cover",
+    sizes: "(max-width: 768px) 96px, 180px",
+  });
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -29,7 +37,9 @@ const CategoryCard = ({ cat, index }: { cat: Category; index: number }) => {
             <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
           )}
           <img
-            src={cat.image_url || PLACEHOLDER_IMAGE}
+            src={imageProps.src}
+            srcSet={imageProps.srcSet}
+            sizes={imageProps.sizes}
             alt={cat.name}
             className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
             loading="lazy"

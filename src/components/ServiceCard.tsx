@@ -6,6 +6,7 @@ import { formatCurrency } from "../lib/utils";
 import { Service } from "../types";
 import { readWishlist, toggleWishlist } from "../lib/booking";
 import { useAuth } from "../contexts/AuthContext";
+import { getResponsiveImageProps } from "../lib/images";
 
 interface ServiceCardProps {
   service: Service;
@@ -49,6 +50,15 @@ export const ServiceCard = ({ service, variant = "default" }: ServiceCardProps) 
 
   const supportingLabel = service.trending ? "+ 2 more" : service.tags?.[1] || service.location;
   const isCompact = variant === "compact";
+  const imageProps = getResponsiveImageProps(service.images[0], {
+    widths: isCompact ? [240, 320, 480, 640] : [320, 480, 640, 768],
+    height: isCompact ? 720 : 640,
+    quality: 80,
+    resize: "cover",
+    sizes: isCompact
+      ? "(max-width: 768px) 44vw, 280px"
+      : "(max-width: 768px) 92vw, (max-width: 1280px) 33vw, 360px",
+  });
 
   return (
     <Link to={`/category/${encodeURIComponent(service.category)}/service/${service.id}`} className="block group">
@@ -70,7 +80,9 @@ export const ServiceCard = ({ service, variant = "default" }: ServiceCardProps) 
             <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
           )}
           <img
-            src={service.images[0]}
+            src={imageProps.src}
+            srcSet={imageProps.srcSet}
+            sizes={imageProps.sizes}
             alt={service.title}
             className={`h-full w-full object-cover transition-transform duration-500 group-hover:scale-105 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
             loading="lazy"

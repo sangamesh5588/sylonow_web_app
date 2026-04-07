@@ -4,6 +4,8 @@ import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const SUPABASE_STORAGE_PATTERN = /^https:\/\/[^/]+\.supabase\.co\/storage\/v1\/(?:render\/image|object)\/.*/i;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -72,6 +74,15 @@ export default defineConfig({
             options: {
               cacheName: 'unsplash-images-cache',
               expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: SUPABASE_STORAGE_PATTERN,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'supabase-images-cache',
+              expiration: { maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

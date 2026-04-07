@@ -6,6 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { readOrders } from "../lib/booking";
 import { Order } from "../types";
 import { formatCurrency } from "../lib/utils";
+import { getOptimizedImageUrl } from "../lib/images";
 import { Button, Card } from "../components/ui";
 
 const Orders = () => {
@@ -106,10 +107,17 @@ const Orders = () => {
                     <div key={item.serviceId} className="flex gap-4">
                       <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-gray-100">
                         <img
-                          src={item.service.images[0]}
+                          src={getOptimizedImageUrl(item.service.images[0], {
+                            width: 160,
+                            height: 160,
+                            quality: 76,
+                            resize: "cover",
+                          })}
                           alt={item.service.title}
                           className="h-full w-full object-cover"
                           referrerPolicy="no-referrer"
+                          loading="lazy"
+                          decoding="async"
                         />
                       </div>
                       <div className="flex-1 min-w-0">

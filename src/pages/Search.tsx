@@ -4,6 +4,7 @@ import { Search as SearchIcon, ChevronLeft, Heart, Star, SlidersHorizontal, X, N
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { formatCurrency } from "../lib/utils";
+import { getResponsiveImageProps } from "../lib/images";
 import {
   getCityCenter,
   normalizeCityName,
@@ -106,6 +107,13 @@ const matchesPriceFilter = (price: number, filter: PriceFilter) => {
 
 const SearchCard = ({ service, index }: { service: Service; index: number }) => {
   const [imgLoaded, setImgLoaded] = useState(false);
+  const imageProps = getResponsiveImageProps(service.images[0], {
+    widths: [320, 480, 640, 768],
+    height: 800,
+    quality: 80,
+    resize: "cover",
+    sizes: "(max-width: 768px) 92vw, (max-width: 1280px) 45vw, 380px",
+  });
 
   return (
     <motion.div
@@ -119,7 +127,9 @@ const SearchCard = ({ service, index }: { service: Service; index: number }) => 
             <div className="aspect-[0.9/1] overflow-hidden rounded-b-[24px] rounded-t-[22px] md:aspect-[1.18/1] md:rounded-b-[32px] md:rounded-t-[28px] bg-[#f0f2f5]">
               {!imgLoaded && <div className="absolute inset-0 animate-pulse bg-[#e8eaed]" />}
               <img
-                src={service.images[0]}
+                src={imageProps.src}
+                srcSet={imageProps.srcSet}
+                sizes={imageProps.sizes}
                 alt={service.title}
                 loading="lazy"
                 decoding="async"

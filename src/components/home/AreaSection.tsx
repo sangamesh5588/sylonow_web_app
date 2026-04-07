@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useState } from "react";
 import { motion } from "motion/react";
 import { Service } from "../../types";
+import { getResponsiveImageProps } from "../../lib/images";
 
 interface AreaSectionProps {
   title: string;
@@ -11,6 +12,13 @@ interface AreaSectionProps {
 
 const AreaCard = ({ service, index }: { service: Service; index: number }) => {
   const [imgLoaded, setImgLoaded] = useState(false);
+  const imageProps = getResponsiveImageProps(service.images[0], {
+    widths: [240, 320, 480, 640],
+    height: 800,
+    quality: 80,
+    resize: "cover",
+    sizes: "(max-width: 768px) 240px, 16vw",
+  });
 
   return (
     <motion.div
@@ -27,7 +35,9 @@ const AreaCard = ({ service, index }: { service: Service; index: number }) => {
             <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
           )}
           <img
-            src={service.images[0]}
+            src={imageProps.src}
+            srcSet={imageProps.srcSet}
+            sizes={imageProps.sizes}
             alt={service.title}
             className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
             loading="lazy"

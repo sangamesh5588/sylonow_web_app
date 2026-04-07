@@ -10,6 +10,7 @@ import {
   saveBookingDraft,
 } from "../lib/booking";
 import { formatCurrency } from "../lib/utils";
+import { getOptimizedImageUrl } from "../lib/images";
 import { CartItem } from "../types";
 
 const formatBookingDate = (value: string) => {
@@ -160,10 +161,17 @@ const Cart = () => {
                       }}
                     >
                       <img
-                        src={item.service.images[0]}
+                        src={getOptimizedImageUrl(item.service.images[0], {
+                          width: 320,
+                          height: 320,
+                          quality: 78,
+                          resize: "cover",
+                        })}
                         alt={item.service.title}
                         className="h-full w-full object-cover"
                         referrerPolicy="no-referrer"
+                        loading="lazy"
+                        decoding="async"
                       />
                     </div>
                   </div>
@@ -248,10 +256,17 @@ const Cart = () => {
                     }}
                   >
                     <img
-                      src={item.service.images[0]}
+                      src={getOptimizedImageUrl(item.service.images[0], {
+                        width: 720,
+                        height: 540,
+                        quality: 80,
+                        resize: "cover",
+                      })}
                       alt={item.service.title}
                       className="h-full w-full object-cover"
                       referrerPolicy="no-referrer"
+                      loading="lazy"
+                      decoding="async"
                     />
                     <div className="absolute inset-x-0 top-0 flex items-center justify-between p-3">
                       <span className="rounded-full bg-white/95 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[#0B4964]">
