@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight, Phone, X } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../../contexts/AuthContext";
@@ -224,14 +224,23 @@ export const CustomerInquiryPopup = ({
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[#FB2965] text-sm font-semibold text-white transition hover:bg-[#e91e5a] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <span>{submitting ? "Submitting..." : "Submit request"}</span>
-                {!submitting ? <ChevronRight size={16} /> : null}
-              </button>
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-[#FB2965] text-sm font-semibold text-white transition hover:bg-[#e91e5a] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>{submitting ? "Submitting..." : "Submit request"}</span>
+                  {!submitting ? <ChevronRight size={16} /> : null}
+                </button>
+                <a
+                  href="tel:+919035954662"
+                  className="flex h-11 items-center justify-center gap-1.5 rounded-2xl border border-[#e5eaf0] px-4 text-sm font-semibold text-[#0B4964] transition hover:bg-[#f8fbfd]"
+                >
+                  <Phone size={15} />
+                  Call now
+                </a>
+              </div>
             </form>
           </motion.div>
         </div>

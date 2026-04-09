@@ -117,7 +117,13 @@ const StarRow = ({ rating, size = 14 }: { rating: number; size?: number }) => (
   </div>
 );
 
-export const CustomerTestimonials = () => {
+interface CustomerTestimonialsProps {
+  showReviews?: boolean;
+}
+
+export const CustomerTestimonials = ({
+  showReviews = true,
+}: CustomerTestimonialsProps) => {
   return (
     <section className="space-y-4 pt-4 md:space-y-6 md:pt-8">
       {/* CTA banner */}
@@ -125,10 +131,10 @@ export const CustomerTestimonials = () => {
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-[#7a95aa]">Personal assistance</p>
           <h2 className="mt-2 text-2xl font-bold leading-snug tracking-tight text-[#0B4964] md:text-3xl">
-            Need help choosing the right decoration?
+            Still have not found the decoration you want?
           </h2>
           <p className="mt-2 max-w-lg text-sm leading-6 text-[#5b6b7b]">
-            Share your occasion and budget. Our team will shortlist the best setup for your celebration.
+            Share your idea, theme and budget. Our team will help you customise a decoration setup made for your celebration.
           </p>
         </div>
         <button
@@ -136,64 +142,57 @@ export const CustomerTestimonials = () => {
           onClick={() => openCustomerInquiryPopup("home_popup")}
           className="shrink-0 inline-flex items-center justify-center rounded-2xl bg-[#FB2965] px-8 py-3.5 text-sm font-semibold text-white transition hover:bg-[#e91e5a]"
         >
-          Ask us
+          Customise now
         </button>
       </div>
 
-      {/* Reviews section */}
-      <div className="rounded-[28px] border border-[#e6edf1] bg-white px-5 py-6 shadow-[0_16px_34px_rgba(15,23,42,0.04)] md:px-8 md:py-8">
+      {showReviews ? (
+        <div className="rounded-[28px] border border-[#e6edf1] bg-white px-5 py-6 shadow-[0_16px_34px_rgba(15,23,42,0.04)] md:px-8 md:py-8">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight text-[#0B4964] md:text-[32px]">
+                What our customers say
+              </h2>
+              <p className="mt-1 text-sm text-[#667085]">
+                Real reviews from celebrations across Bengaluru
+              </p>
+            </div>
+          </div>
 
-        {/* Header */}
-        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight text-[#0B4964] md:text-[32px]">
-              What our customers say
-            </h2>
-            <p className="mt-1 text-sm text-[#667085]">
-              Real reviews from celebrations across Bengaluru
-            </p>
+          <div className="-mx-5 mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-1 scroll-smooth no-scrollbar md:mx-0 md:px-0">
+            {testimonials.map((item) => (
+              <article
+                key={`${item.name}-${item.area}`}
+                className="min-w-[82vw] snap-start rounded-[20px] border border-[#edf2f5] bg-[#fcfdff] p-4 sm:min-w-[320px] lg:min-w-[360px]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                      style={{ backgroundColor: item.color }}
+                    >
+                      {item.initials}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-[#13384a]">{item.name}</p>
+                      <p className="text-[11px] text-[#7b8794]">{item.area} · {item.date}</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 rounded-full bg-[#fff7ed] px-2 py-0.5 text-[10px] font-semibold text-[#92400e]">
+                    {item.occasion}
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <StarRow rating={item.rating} size={13} />
+                </div>
+
+                <p className="mt-2 text-sm leading-6 text-[#344054]">"{item.quote}"</p>
+              </article>
+            ))}
           </div>
         </div>
-
-        {/* Cards */}
-        <div
-          className="-mx-5 mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto px-5 pb-1 scroll-smooth no-scrollbar md:mx-0 md:px-0"
-        >
-          {testimonials.map((item) => (
-            <article
-              key={`${item.name}-${item.area}`}
-              className="min-w-[82vw] snap-start rounded-[20px] border border-[#edf2f5] bg-[#fcfdff] p-4 sm:min-w-[320px] lg:min-w-[360px]"
-            >
-              {/* Top row */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                    style={{ backgroundColor: item.color }}
-                  >
-                    {item.initials}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-[#13384a]">{item.name}</p>
-                    <p className="text-[11px] text-[#7b8794]">{item.area} · {item.date}</p>
-                  </div>
-                </div>
-                <div className="shrink-0 rounded-full bg-[#fff7ed] px-2 py-0.5 text-[10px] font-semibold text-[#92400e]">
-                  {item.occasion}
-                </div>
-              </div>
-
-              {/* Stars */}
-              <div className="mt-3">
-                <StarRow rating={item.rating} size={13} />
-              </div>
-
-              {/* Quote */}
-              <p className="mt-2 text-sm leading-6 text-[#344054]">"{item.quote}"</p>
-            </article>
-          ))}
-        </div>
-      </div>
+      ) : null}
     </section>
   );
 };

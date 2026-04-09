@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
 import SEO from "../components/SEO";
 import { CategoryCircles } from "../components/home/CategoryCircles";
-import { CustomerInquiryPopup } from "../components/home/CustomerInquiryPopup";
 import { OfferBanner } from "../components/home/OfferBanner";
 import { ServiceSection } from "../components/home/ServiceSection";
 import { SupportFab } from "../components/home/SupportFab";
 import { fetchAllServices, fetchHomeSections, HomeSection } from "../lib/services";
 import { getServicesInArea } from "../lib/areas";
 import {
-  OPEN_CUSTOMER_INQUIRY_EVENT,
+  openCustomerInquiryPopup,
 } from "../lib/customerInquiries";
 import { Service } from "../types";
 
@@ -33,7 +32,6 @@ const Home = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [sections, setSections] = useState<HomeSection[]>([]);
   const [loading, setLoading] = useState(true);
-  const [inquiryOpen, setInquiryOpen] = useState(false);
 
   // Restore scroll after content loads
   useEffect(() => {
@@ -63,20 +61,10 @@ const Home = () => {
   useEffect(() => {
     if (localStorage.getItem("inquiry_popup_seen")) return;
     const timer = window.setTimeout(() => {
-      setInquiryOpen(true);
+      openCustomerInquiryPopup("home_popup");
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    const handleOpenInquiry = (event: Event) => {
-      void event;
-      setInquiryOpen(true);
-    };
-
-    window.addEventListener(OPEN_CUSTOMER_INQUIRY_EVENT, handleOpenInquiry);
-    return () => window.removeEventListener(OPEN_CUSTOMER_INQUIRY_EVENT, handleOpenInquiry);
   }, []);
 
   const FLAG_COL_MAP: Record<string, keyof Service> = {
@@ -144,14 +132,6 @@ const Home = () => {
         )}
       </div>
       <SupportFab />
-      <CustomerInquiryPopup
-        open={inquiryOpen}
-        onClose={() => {
-          localStorage.setItem("inquiry_popup_seen", "1");
-          setInquiryOpen(false);
-        }}
-        source="home_popup"
-      />
     </div>
   );
 };
