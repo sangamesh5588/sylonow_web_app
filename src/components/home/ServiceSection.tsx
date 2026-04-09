@@ -2,12 +2,13 @@ import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Service } from "../../types";
 import { formatCurrency } from "../../lib/utils";
-import { motion } from "motion/react";
 import { ChevronRight, Heart, Star } from "lucide-react";
 import { toast } from "sonner";
 import { readWishlist, toggleWishlist } from "../../lib/booking";
 import { useAuth } from "../../contexts/AuthContext";
 import { getResponsiveImageProps } from "../../lib/images";
+import { ServiceCardMobile } from "./ServiceCardMobile";
+import { ServiceCardDesktop } from "./ServiceCardDesktop";
 
 interface ServiceSectionProps {
   title: string;
@@ -20,6 +21,9 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
   const { isAuthenticated, setShowLoginModal } = useAuth();
   const [isWishlisted, setIsWishlisted] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const imgRef = (el: HTMLImageElement | null) => {
+    if (el?.complete) setImgLoaded(true);
+  };
 
   useEffect(() => {
     const wishlist = readWishlist();
@@ -51,21 +55,17 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
   });
 
   return (
-    <motion.div
-      key={service.id}
-      initial={{ opacity: 0 }}
-      whileInView={{ opacity: 1 }}
-      viewport={{ once: true }}
-      transition={{ delay: index * 0.04, duration: 0.3 }}
+    <div
       className="min-w-[160px] w-[160px] md:min-w-[280px] md:w-[280px] flex-shrink-0"
     >
       <Link to={`/category/${encodeURIComponent(service.category)}/service/${service.id}`}>
         <div className="group cursor-pointer">
-          <div className="relative aspect-square rounded-2xl overflow-hidden mb-3 shadow-sm group-hover:shadow-md transition-all duration-500">
+          <div className="relative w-[160px] h-[160px] md:w-[280px] md:h-[280px] rounded-2xl overflow-hidden mb-3 shadow-sm group-hover:shadow-md transition-all duration-500">
             {!imgLoaded && (
               <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
             )}
             <img
+              ref={imgRef}
               src={imageProps.src}
               srcSet={imageProps.srcSet}
               sizes={imageProps.sizes}
@@ -97,7 +97,7 @@ const ServiceCardWithWishlist = ({ service, index }: { service: Service; index: 
           </div>
         </div>
       </Link>
-    </motion.div>
+    </div>
   );
 };
 
@@ -114,9 +114,16 @@ export const ServiceSection = ({ title, services, sectionId }: ServiceSectionPro
         </Link>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2 md:pt-4 md:pb-4">
+      {/* Mobile */}
+      <div className="flex md:hidden gap-4 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2">
         {services.map((service, index) => (
-          <ServiceCardWithWishlist key={service.id} service={service} index={index} />
+          <ServiceCardMobile key={service.id} service={service} index={index} />
+        ))}
+      </div>
+      {/* Desktop */}
+      <div className="hidden md:flex gap-4 overflow-x-auto no-scrollbar -mx-4 px-4 pt-4 pb-4">
+        {services.map((service, index) => (
+          <ServiceCardDesktop key={service.id} service={service} index={index} />
         ))}
       </div>
     </section>

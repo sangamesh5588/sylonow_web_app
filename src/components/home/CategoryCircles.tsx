@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { supabase } from "../../lib/supabase";
 import { getResponsiveImageProps } from "../../lib/images";
+import { CategoryCardDesktop } from "./CategoryCardDesktop";
+import { CategoryCardMobile } from "./CategoryCardMobile";
 
 interface Category {
   id: string;
@@ -17,11 +19,10 @@ const PLACEHOLDER_IMAGE =
 const CategoryCard = ({ cat, index }: { cat: Category; index: number }) => {
   const [imgLoaded, setImgLoaded] = useState(false);
   const imageProps = getResponsiveImageProps(cat.image_url || PLACEHOLDER_IMAGE, {
-    widths: [120, 180, 240, 320],
-    height: 420,
+    widths: [192, 384],
     quality: 78,
     resize: "cover",
-    sizes: "(max-width: 768px) 96px, 180px",
+    sizes: "96px",
   });
   return (
     <motion.div
@@ -29,10 +30,10 @@ const CategoryCard = ({ cat, index }: { cat: Category; index: number }) => {
       whileInView={{ opacity: 1, scale: 1 }}
       viewport={{ once: true }}
       transition={{ delay: index * 0.04, duration: 0.25 }}
-      className="shrink-0 md:shrink group cursor-pointer w-24 md:w-full"
+      className="shrink-0 group cursor-pointer w-24"
     >
       <Link to={`/category/${cat.name}`}>
-        <div className="relative w-24 h-28 md:w-full md:h-44 rounded-2xl md:rounded-3xl overflow-hidden shadow-sm border border-[#edf0f4] group-hover:border-[#FB2965] transition-all duration-300">
+        <div className="relative w-24 h-24 rounded-2xl overflow-hidden shadow-sm border border-[#edf0f4] group-hover:border-[#FB2965] transition-all duration-300">
           {!imgLoaded && (
             <div className="absolute inset-0 bg-[#f0f2f5] animate-pulse" />
           )}
@@ -41,14 +42,14 @@ const CategoryCard = ({ cat, index }: { cat: Category; index: number }) => {
             srcSet={imageProps.srcSet}
             sizes={imageProps.sizes}
             alt={cat.name}
-            className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
+            className={`w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-110 ${imgLoaded ? "opacity-100" : "opacity-0"}`}
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
             onLoad={() => setImgLoaded(true)}
           />
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-6 md:px-3 md:pb-3 md:pt-10">
-            <span className="text-[10px] md:text-sm font-bold text-white text-center block leading-tight">
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-2 pt-5">
+            <span className="text-[10px] font-bold text-white text-center block leading-tight">
               {cat.name}
             </span>
           </div>
@@ -82,9 +83,9 @@ export const CategoryCircles = () => {
   if (loading) {
     return (
       <section className="py-1">
-        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pt-2 pb-2 md:grid md:grid-cols-6 md:overflow-visible">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2">
           {Array.from({ length: 6 }).map((_, index) => (
-            <div key={index} className="w-24 h-28 md:w-full md:h-44 shrink-0 rounded-2xl md:rounded-3xl bg-[#f0f2f5] animate-pulse" />
+            <div key={index} className="w-[140px] h-[140px] shrink-0 rounded-2xl bg-[#f0f2f5] animate-pulse" />
           ))}
         </div>
       </section>
@@ -95,9 +96,16 @@ export const CategoryCircles = () => {
 
   return (
     <section className="py-1">
-      <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pt-2 pb-2 md:grid md:grid-cols-6 md:gap-4 md:overflow-visible">
-        {categories.map((cat, index) => (
-          <CategoryCard key={cat.id} cat={cat} index={index} />
+      {/* Mobile */}
+      <div className="flex md:hidden gap-3 overflow-x-auto no-scrollbar -mx-4 px-4 pt-2 pb-2">
+        {categories.map((cat) => (
+          <CategoryCardMobile key={cat.id} name={cat.name} image_url={cat.image_url} />
+        ))}
+      </div>
+      {/* Desktop */}
+      <div className="hidden md:grid md:grid-cols-6 md:gap-4">
+        {categories.map((cat) => (
+          <CategoryCardDesktop key={cat.id} id={cat.id} name={cat.name} image_url={cat.image_url} />
         ))}
       </div>
     </section>

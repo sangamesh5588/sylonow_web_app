@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import SEO from "../components/SEO";
 import { CategoryCircles } from "../components/home/CategoryCircles";
+import { CustomerInquiryPopup } from "../components/home/CustomerInquiryPopup";
 import { OfferBanner } from "../components/home/OfferBanner";
 import { ServiceSection } from "../components/home/ServiceSection";
 import { SupportFab } from "../components/home/SupportFab";
 import { fetchAllServices, fetchHomeSections, HomeSection } from "../lib/services";
 import { getServicesInArea } from "../lib/areas";
+import {
+  OPEN_CUSTOMER_INQUIRY_EVENT,
+} from "../lib/customerInquiries";
 import { Service } from "../types";
 
 const HOME_SCROLL_KEY = "home_scroll_y";
@@ -29,6 +33,7 @@ const Home = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [sections, setSections] = useState<HomeSection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [inquiryOpen, setInquiryOpen] = useState(false);
 
   // Restore scroll after content loads
   useEffect(() => {
@@ -53,6 +58,25 @@ const Home = () => {
       setSections(secData);
       setLoading(false);
     });
+  }, []);
+
+  useEffect(() => {
+    if (localStorage.getItem("inquiry_popup_seen")) return;
+    const timer = window.setTimeout(() => {
+      setInquiryOpen(true);
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenInquiry = (event: Event) => {
+      void event;
+      setInquiryOpen(true);
+    };
+
+    window.addEventListener(OPEN_CUSTOMER_INQUIRY_EVENT, handleOpenInquiry);
+    return () => window.removeEventListener(OPEN_CUSTOMER_INQUIRY_EVENT, handleOpenInquiry);
   }, []);
 
   const FLAG_COL_MAP: Record<string, keyof Service> = {
@@ -87,7 +111,7 @@ const Home = () => {
   };
 
   return (
-    <div className="space-y-5 pb-40 pt-4 md:space-y-12 md:pb-12">
+    <div className="space-y-5 pb-10 pt-4 md:space-y-12 md:pb-12">
       <SEO
         title="Birthday Decoration & Surprise Planning in Bangalore"
         description="Bangalore's #1 Birthday Decoration & Surprise Planning Service. Premium balloon decoration, romantic room setups, anniversary celebrations & surprise parties. Book now for same-day celebration services!"
@@ -120,6 +144,14 @@ const Home = () => {
         )}
       </div>
       <SupportFab />
+      <CustomerInquiryPopup
+        open={inquiryOpen}
+        onClose={() => {
+          localStorage.setItem("inquiry_popup_seen", "1");
+          setInquiryOpen(false);
+        }}
+        source="home_popup"
+      />
     </div>
   );
 };

@@ -732,6 +732,7 @@ const Checkout = () => {
 
       await syncAbandonedCartSnapshot({
         items: remainingCartItems,
+        authUserId: user?.id ?? null,
         phoneNumber: profile.phone_number,
         fullName: profile.full_name ?? null,
         status: remainingCartItems.length === 0 ? "converted" : "active",

@@ -3,6 +3,7 @@ import { getCartItemKey } from "./booking";
 import { supabase } from "./supabase";
 
 export type AbandonedCartStatus = "active" | "archived" | "converted";
+const GUEST_CART_SESSION_KEY = "sylonow_guest_cart_session_id";
 
 interface AbandonedCartSnapshotItem {
   cart_key: string;
@@ -21,10 +22,21 @@ interface AbandonedCartSnapshotItem {
 
 interface SyncAbandonedCartSnapshotInput {
   items: CartItem[];
+  authUserId?: string | null;
+  guestSessionId?: string | null;
   phoneNumber?: string | null;
   fullName?: string | null;
   status?: AbandonedCartStatus;
 }
+
+export const getGuestCartSessionId = () => {
+  const existing = localStorage.getItem(GUEST_CART_SESSION_KEY);
+  if (existing) return existing;
+
+  const nextId = crypto.randomUUID();
+  localStorage.setItem(GUEST_CART_SESSION_KEY, nextId);
+  return nextId;
+};
 
 const getSelectedAddonNames = (item: CartItem) =>
   item.selectedAddons
@@ -76,6 +88,8 @@ export const buildAbandonedCartSnapshot = (items: CartItem[]) => {
 
 export const syncAbandonedCartSnapshot = async ({
   items,
+  authUserId,
+  guestSessionId,
   phoneNumber,
   fullName,
   status,
@@ -86,7 +100,7 @@ export const syncAbandonedCartSnapshot = async ({
   const resolvedStatus: AbandonedCartStatus =
     status ?? (itemCount === 0 ? "archived" : "active");
 
-  const { error } = await supabase.rpc("upsert_abandoned_cart_snapshot", {
+  const rpcPayload = {
     p_cart_items: snapshotItems,
     p_item_count: itemCount,
     p_cart_total: cartTotal,
@@ -100,9 +114,70 @@ export const syncAbandonedCartSnapshot = async ({
       synced_at: new Date().toISOString(),
     },
     p_status: resolvedStatus,
-  });
+    p_guest_session_id: guestSessionId ?? null,
+  };
 
-  if (error) {
+  const { error } = await supabase.rpc("upsert_abandoned_cart_snapshot", rpcPayload);
+
+  if (!error) {
+    return;
+  }
+
+  const missingRpc =
+    error.message?.toLowerCase().includes("upsert_abandoned_cart_snapshot") ||
+    error.message?.toLowerCase().includes("could not find the function") ||
+    error.code === "PGRST202";
+
+  if (!missingRpc) {
     throw error;
+  }
+
+  if (!authUserId) {
+    throw error;
+  }
+
+  const now = new Date().toISOString();
+
+  const directPayload = {
+    auth_user_id: authUserId,
+    phone_number: phoneNumber ?? null,
+    full_name: fullName ?? null,
+    cart_items: snapshotItems,
+    cart_fingerprint: cartFingerprint,
+    item_count: itemCount,
+    cart_total: cartTotal,
+    status: resolvedStatus,
+    recovery_url: typeof window !== "undefined" ? `${window.location.origin}/cart` : null,
+    metadata: {
+      source: "web-app",
+      synced_at: now,
+    },
+    last_activity_at: now,
+    converted_at: resolvedStatus === "converted" ? now : null,
+  };
+
+  const { error: upsertError } = await supabase
+    .from("abandoned_carts")
+    .upsert(directPayload, { onConflict: "auth_user_id" });
+
+  if (upsertError) {
+    throw upsertError;
+  }
+
+  if (resolvedStatus === "active") {
+    const { error: resetError } = await supabase
+      .from("abandoned_carts")
+      .update({
+        first_abandoned_at: null,
+        last_notified_at: null,
+        notification_count: 0,
+        converted_at: null,
+        last_activity_at: now,
+      })
+      .eq("auth_user_id", authUserId);
+
+    if (resetError) {
+      throw resetError;
+    }
   }
 };

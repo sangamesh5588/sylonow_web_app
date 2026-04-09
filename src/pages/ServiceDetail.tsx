@@ -155,6 +155,35 @@ const ServiceDetail = () => {
   const [allServices, setAllServices] = useState<Service[]>([]);
   const [coupons, setCoupons] = useState<CheckoutCoupon[]>([]);
   const [loadingService, setLoadingService] = useState(true);
+  const pendingActionRef = useRef<"reserve" | "bookNow" | null>(null);
+
+  // After login, execute the action the user was trying to do
+  useEffect(() => {
+    if (!isAuthenticated || !service || !pendingActionRef.current) return;
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    if (action === "reserve") {
+      upsertCartItem({
+        serviceId: service.id,
+        service,
+        selectedAddons: [],
+        date: selectedDate,
+        time: selectedTime,
+        quantity: 1,
+      });
+      toast.success("Added to cart");
+      navigate("/cart");
+    } else if (action === "bookNow") {
+      saveBookingDraft({
+        serviceId: service.id,
+        date: selectedDate,
+        time: selectedTime,
+        price: service.price,
+      });
+      navigate("/checkout");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!serviceId) return;
@@ -456,6 +485,11 @@ const ServiceDetail = () => {
   };
 
   const handleReserve = () => {
+    if (!isAuthenticated || !profile?.phone_number) {
+      pendingActionRef.current = "reserve";
+      setShowLoginModal(true);
+      return;
+    }
     upsertCartItem({
       serviceId: service.id,
       service,
@@ -498,6 +532,11 @@ const ServiceDetail = () => {
   };
 
   const handleBookNow = () => {
+    if (!isAuthenticated || !profile?.phone_number) {
+      pendingActionRef.current = "bookNow";
+      setShowLoginModal(true);
+      return;
+    }
     saveBookingDraft({
       serviceId: service.id,
       date: selectedDate,

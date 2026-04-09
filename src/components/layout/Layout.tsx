@@ -3,8 +3,8 @@ import { Navbar } from "./Navbar";
 import { BottomNav } from "./BottomNav";
 import { Footer } from "./Footer";
 import { Toaster } from "sonner";
-import { AnimatePresence, motion } from "motion/react";
 import { PopularSearches } from "../home/PopularSearches";
+import { CustomerTestimonials } from "../home/CustomerTestimonials";
 import { CartSync } from "./CartSync";
 
 export const Layout = () => {
@@ -14,6 +14,7 @@ export const Layout = () => {
   const isOffersPage = location.pathname === "/offers";
   const isCategoryPage = location.pathname.startsWith("/category/");
   const isSearchPage = location.pathname === "/search";
+  const showTestimonials = isHomePage;
 
   const showBottomNav = isHomePage || isOffersPage || isProfilePage || isCategoryPage;
   const showPopularSearches = isHomePage || isCategoryPage || isSearchPage;
@@ -22,18 +23,9 @@ export const Layout = () => {
     <div className={`min-h-screen w-full max-w-full overflow-x-hidden bg-white text-[#1A1A1A] ${showBottomNav ? 'pb-32 md:pb-0' : 'pb-8'}`}>
       <Navbar />
       <main className={`mx-auto w-full max-w-7xl overflow-x-hidden px-4 ${isCategoryPage ? "pt-0" : "pt-4"}`}>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-          >
-            <Outlet />
-            {showPopularSearches && <PopularSearches />}
-          </motion.div>
-        </AnimatePresence>
+        <Outlet />
+        {showTestimonials && <CustomerTestimonials />}
+        {showPopularSearches && <PopularSearches />}
       </main>
       <div className="hidden md:block">
         <Footer />

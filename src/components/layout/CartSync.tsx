@@ -1,26 +1,26 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { getCartUpdatedEventName, readCart } from "../../lib/booking";
-import { syncAbandonedCartSnapshot } from "../../lib/abandonedCart";
+import {
+  getGuestCartSessionId,
+  syncAbandonedCartSnapshot,
+} from "../../lib/abandonedCart";
 
 export const CartSync = () => {
   const { user, isAuthenticated, profile } = useAuth();
   const lastSyncedSignatureRef = useRef("");
 
   useEffect(() => {
-    if (!isAuthenticated || !user) {
-      lastSyncedSignatureRef.current = "";
-      return;
-    }
-
     let timeoutId: number | undefined;
     let cancelled = false;
 
     const syncCart = async () => {
       const items = readCart();
       const status = items.length === 0 ? "archived" : "active";
+      const guestSessionId = isAuthenticated && user ? null : getGuestCartSessionId();
+      const ownerKey = user?.id ?? guestSessionId ?? "guest";
       const signature = JSON.stringify({
-        authUserId: user.id,
+        ownerKey,
         phoneNumber: profile?.phone_number ?? user.phone ?? "",
         fullName: profile?.full_name ?? "",
         keys: items.map((item) => `${item.serviceId}__${item.date}__${item.time}`),
@@ -34,6 +34,8 @@ export const CartSync = () => {
       try {
         await syncAbandonedCartSnapshot({
           items,
+          authUserId: user?.id ?? null,
+          guestSessionId,
           phoneNumber: profile?.phone_number ?? user.phone ?? null,
           fullName: profile?.full_name ?? null,
           status,
